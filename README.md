@@ -95,10 +95,10 @@ BlazeBee follows a modular architecture that separates concerns:
 
 Complete documentation is available at [blazebee.github.io/docs]( https://rubtsov-stan.github.io/blazebee/docs) covering:
 
-- [Installation Guide]( https://rubtsov-stan.github.io/blazebee/docs/quickstart)
-- [Configuration Reference]( https://rubtsov-stan.github.io/blazebee/docs/architecture)
-- [Deployment Scenarios]( https://rubtsov-stan.github.io/blazebee/docs/guides)
-- [Contributing Guidelines]( https://rubtsov-stan.github.io/blazebee/docs/contributing)
+- [Installation Guide]( https://rubtsov-stan.github.io/blazebee/quickstart)
+- [Configuration Reference]( https://rubtsov-stan.github.io/blazebee/architecture)
+- [Deployment Scenarios]( https://rubtsov-stan.github.io/blazebee/guides)
+- [Contributing Guidelines]( https://rubtsov-stan.github.io/blazebee/contributing)
 
 ## 🔒 Security & Reliability
 
@@ -110,7 +110,7 @@ Complete documentation is available at [blazebee.github.io/docs]( https://rubtso
 
 ## 🤝 Contributing
 
-We welcome contributions from the community! Check out our [Contributing Guide]( https://rubtsov-stan.github.io/blazebee/docs/contributing) to get started.
+We welcome contributions from the community! Check out our [Contributing Guide]( https://rubtsov-stan.github.io/blazebee/contributing) to get started.
 
 - **Bug Reports**: Please use the GitHub issue tracker
 - **Feature Requests**: Open an issue to discuss new features

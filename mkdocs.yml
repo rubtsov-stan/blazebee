@@ -3,8 +3,10 @@ site_description: Lightweight system metrics collector and MQTT publisher
 site_author: BlazeBee Team
 copyright: Copyright &copy; 2024 BlazeBee Team
 
-repo_name: blazebee/blazebee
-repo_url: https://github.com/blazebee/blazebee
+repo_name: rubtsov-stan/blazebee
+repo_url: https://github.com/rubtsov-stan/blazebee
+site_url: https://rubtsov-stan.github.io/blazebee/
+
 edit_uri: edit/main/docs/
 
 theme:
@@ -24,9 +26,11 @@ theme:
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+
   font:
     text: Roboto
     code: JetBrains Mono
+
   features:
     - navigation.tabs
     - navigation.sections
