@@ -93,7 +93,7 @@ BlazeBee follows a modular architecture that separates concerns:
 
 ## 📚 Documentation
 
-Complete documentation is available at [blazebee.github.io/docs]( https://rubtsov-stan.github.io/blazebee/docs) covering:
+Complete documentation is available at [blazebee.github.io/docs](https://rubtsov-stan.github.io/blazebee) covering:
 
 - [Installation Guide]( https://rubtsov-stan.github.io/blazebee/quickstart)
 - [Configuration Reference]( https://rubtsov-stan.github.io/blazebee/architecture)
