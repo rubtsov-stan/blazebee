@@ -93,12 +93,7 @@ BlazeBee follows a modular architecture that separates concerns:
 
 ## 📚 Documentation
 
-Complete documentation is available at [blazebee.github.io/docs](https://rubtsov-stan.github.io/blazebee) covering:
-
-- [Installation Guide]( https://rubtsov-stan.github.io/blazebee/quickstart)
-- [Configuration Reference]( https://rubtsov-stan.github.io/blazebee/architecture)
-- [Deployment Scenarios]( https://rubtsov-stan.github.io/blazebee/guides)
-- [Contributing Guidelines]( https://rubtsov-stan.github.io/blazebee/contributing)
+Complete documentation is available at [blazebee.github.io/docs](https://rubtsov-stan.github.io/blazebee)
 
 ## 🔒 Security & Reliability
 
@@ -107,21 +102,6 @@ Complete documentation is available at [blazebee.github.io/docs](https://rubtsov
 - **Graceful Shutdown**: Proper cleanup on termination signals
 - **Error Isolation**: Collector failures don't affect other collectors
 - **Memory Safe**: Built with Rust to prevent memory-related vulnerabilities
-
-## 🤝 Contributing
-
-We welcome contributions from the community! Check out our [Contributing Guide]( https://rubtsov-stan.github.io/blazebee/contributing) to get started.
-
-- **Bug Reports**: Please use the GitHub issue tracker
-- **Feature Requests**: Open an issue to discuss new features
-- **Code Contributions**: Fork, implement, and submit a pull request
-- **Documentation**: Help improve our docs and examples
-
-## 🆘 Support & Community
-
-- **Documentation**: [https://rubtsov-stan.github.io/blazebee/docs]( https://rubtsov-stan.github.io/blazebee/docs)
-- **Issues**: [GitHub Issues]( https://rubtsov-stan.github.io/blazebee/issues)
-- **Discussions**: [GitHub Discussions]( https://rubtsov-stan.github.io/blazebee/discussions)
 
 ## 📄 License
 
@@ -137,11 +117,3 @@ BlazeBee wouldn't be possible without the excellent Rust ecosystem and the follo
 - `tracing` - Application-level tracing
 
 ---
-
-<div align="center">
-
-**[🚀 Get Started Now]( https://rubtsov-stan.github.io/blazebee/quickstart)** &nbsp;&nbsp;|&nbsp;&nbsp; **[📖 Read Documentation]( https://rubtsov-stan.github.io/blazebee/docs)** &nbsp;&nbsp;|&nbsp;&nbsp; **[🐛 Report Issue]( https://rubtsov-stan.github.io/blazebee/issues)**
-
-⭐ If you find BlazeBee useful, please give it a star!
-
-</div>
