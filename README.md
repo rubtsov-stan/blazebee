@@ -47,7 +47,7 @@ docker run --rm -it \
 
 ```bash
 # Download and run (AMD64)
-wget https://github.com/blazebee/blazebee/releases/download/v0.1.0/blazebee-linux-amd64
+wget https://rubtsov-stan.github.io/blazebee/releases/download/v0.1.0/blazebee-linux-amd64
 chmod +x blazebee-linux-amd64
 ./blazebee-linux-amd64
 ```
@@ -55,7 +55,7 @@ chmod +x blazebee-linux-amd64
 ### Build from Source
 
 ```bash
-git clone https://github.com/blazebee/blazebee.git
+git clone  https://rubtsov-stan.github.io/blazebee/blazebee.git
 cd blazebee
 make docker TYPE=standard
 ```
@@ -93,12 +93,12 @@ BlazeBee follows a modular architecture that separates concerns:
 
 ## 📚 Documentation
 
-Complete documentation is available at [blazebee.github.io/docs](https://blazebee.github.io/docs) covering:
+Complete documentation is available at [blazebee.github.io/docs]( https://rubtsov-stan.github.io/blazebee/docs) covering:
 
-- [Installation Guide](https://blazebee.github.io/docs/quickstart)
-- [Configuration Reference](https://blazebee.github.io/docs/architecture)
-- [Deployment Scenarios](https://blazebee.github.io/docs/guides)
-- [Contributing Guidelines](https://blazebee.github.io/docs/contributing)
+- [Installation Guide]( https://rubtsov-stan.github.io/blazebee/docs/quickstart)
+- [Configuration Reference]( https://rubtsov-stan.github.io/blazebee/docs/architecture)
+- [Deployment Scenarios]( https://rubtsov-stan.github.io/blazebee/docs/guides)
+- [Contributing Guidelines]( https://rubtsov-stan.github.io/blazebee/docs/contributing)
 
 ## 🔒 Security & Reliability
 
@@ -110,7 +110,7 @@ Complete documentation is available at [blazebee.github.io/docs](https://blazebe
 
 ## 🤝 Contributing
 
-We welcome contributions from the community! Check out our [Contributing Guide](https://blazebee.github.io/docs/contributing) to get started.
+We welcome contributions from the community! Check out our [Contributing Guide]( https://rubtsov-stan.github.io/blazebee/docs/contributing) to get started.
 
 - **Bug Reports**: Please use the GitHub issue tracker
 - **Feature Requests**: Open an issue to discuss new features
@@ -119,9 +119,9 @@ We welcome contributions from the community! Check out our [Contributing Guide](
 
 ## 🆘 Support & Community
 
-- **Documentation**: [blazebee.github.io/docs](https://blazebee.github.io/docs)
-- **Issues**: [GitHub Issues](https://github.com/blazebee/blazebee/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/blazebee/blazebee/discussions)
+- **Documentation**: [https://rubtsov-stan.github.io/blazebee/docs]( https://rubtsov-stan.github.io/blazebee/docs)
+- **Issues**: [GitHub Issues]( https://rubtsov-stan.github.io/blazebee/issues)
+- **Discussions**: [GitHub Discussions]( https://rubtsov-stan.github.io/blazebee/discussions)
 
 ## 📄 License
 
@@ -140,7 +140,7 @@ BlazeBee wouldn't be possible without the excellent Rust ecosystem and the follo
 
 <div align="center">
 
-**[🚀 Get Started Now](https://blazebee.github.io/docs/quickstart)** &nbsp;&nbsp;|&nbsp;&nbsp; **[📖 Read Documentation](https://blazebee.github.io/docs)** &nbsp;&nbsp;|&nbsp;&nbsp; **[🐛 Report Issue](https://github.com/blazebee/blazebee/issues)**
+**[🚀 Get Started Now]( https://rubtsov-stan.github.io/blazebee/quickstart)** &nbsp;&nbsp;|&nbsp;&nbsp; **[📖 Read Documentation]( https://rubtsov-stan.github.io/blazebee/docs)** &nbsp;&nbsp;|&nbsp;&nbsp; **[🐛 Report Issue]( https://rubtsov-stan.github.io/blazebee/issues)**
 
 ⭐ If you find BlazeBee useful, please give it a star!
 
