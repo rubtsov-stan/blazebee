@@ -1,0 +1,272 @@
+# =============================================================================
+# blazebee configuration example
+# =============================================================================
+# This is a complete example configuration file.
+# Copy it to /etc/blazebee/config.toml or use via BLAZEBEE_CONFIG=/path/to/config.toml
+#
+# =============================================================================
+# Logging configuration
+# =============================================================================
+[logger]
+# Global log level: trace, debug, info (default), warn, error
+level = "trace"
+
+# Timestamp format: rfc3339 (default), unix, custom("format")
+timestamp_format = "Unix"
+
+[logger.console]
+# Enable console output (highly recommended)
+enabled = true
+
+# Format: compact (default), pretty, json
+format = "compact"
+
+# Show module path in logs
+show_target = false
+
+# Show thread IDs
+show_thread_ids = false
+
+# Show span enter/exit events
+show_spans = false
+
+# Enable ANSI colors (disable if your terminal doesn't support)
+ansi_colors = true
+
+[logger.journald]
+# Enable systemd journal output (good for production on systemd systems)
+enabled = false
+
+# Identifier in journal (visible in journalctl -u blazebee)
+identifier = "blazebee"
+
+# =============================================================================
+# Transport configuration (MQTT)
+# Only used if feature "blazebee-mqtt-v4" is enabled
+# =============================================================================
+[transport]
+# MQTT broker address
+host = "localhost"
+
+[transport.serialization]
+format = "json"
+
+[transport.framing]
+enabled = true
+
+# MQTT broker port
+port = 1883
+
+# Client ID (can use env var ${HOSTNAME})
+client_id = "blazebee-${HOSTNAME}"
+
+# Keep-alive interval in seconds
+keep_alive = 60
+
+# Clean session (true = no persistence, false = retain subscriptions)
+clean_session = false
+
+# Username (optional)
+# username = "youruser"
+
+# Password (optional, better use env var MQTT_PASSWORD)
+# password = "yourpass"
+
+# TLS settings (recommended for production)
+# tls = { enabled = true, ca_file = "/etc/ssl/certs/ca-certificates.crt" }
+
+# =============================================================================
+# Metrics collection and publishing
+# =============================================================================
+[metrics]
+# How often to collect and publish metrics (seconds)
+collection_interval = 5
+
+# How often to refresh data in memory (usually = collection_interval or larger)
+refresh_interval = 60
+
+# List of enabled collectors
+[[metrics.collectors.enabled]]
+name = "cpu"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/cpu"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "ram"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/ram"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "disk"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/disk"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "network"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/network"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "processes"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/processes"
+qos = 0
+retain = false
+
+[[metrics.collectors.enabled]]
+name = "uptime"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/uptime"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "load_average"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/load_average"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "vmstat"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/vmstat"
+qos = 0
+retain = true
+
+# Network-related (included in standard/large builds)
+[[metrics.collectors.enabled]]
+name = "arp"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/arp"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "netstat"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/netstat"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "sockstat"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/sockstat"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "softnet"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/softnet"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "conntrack"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/conntrack"
+qos = 0
+retain = true
+
+# Optional advanced (included in large build)
+[[metrics.collectors.enabled]]
+name = "pressure"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/pressure"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "thermal"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/thermal"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "hwmon"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/hwmon"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "entropy"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/entropy"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "filefd"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/filefd"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "schedstat"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/schedstat"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "stat"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/stat"
+qos = 0
+retain = true
+
+
+[[metrics.collectors.enabled]]
+name = "filesystem"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/filesystem"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "systemd"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/systemd"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]#
+name = "ntp"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/ntp"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "power"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/power"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "edac"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/edac"
+qos = 0
+retain = true
+
+[[metrics.collectors.enabled]]
+name = "mdraid"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/mdraid"
+qos = 0
+retain = true
