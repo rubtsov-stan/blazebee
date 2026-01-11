@@ -1,6 +1,6 @@
 # BlazeBee: Lightning-Fast System Metrics Collector
 
-[![License](https://img.shields.io/github/license/blazebee/blazebee)](LICENSE)
+[![License](https://img.shields.io/github/license/rubtsov-stan/blazebee)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.86+-orange.svg)](https://www.rust-lang.org/)
 [![MQTT](https://img.shields.io/badge/mqtt-v4-blue)](https://mqtt.org/)
 [![Docker](https://img.shields.io/badge/docker-automated-blue)](https://hub.docker.com/r/blazebee/blazebee)
