@@ -18,7 +18,7 @@ To contribute to BlazeBee, you'll need:
 1. Fork the BlazeBee repository on GitHub
 2. Clone your fork locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/blazebee.git
+   git clone https://github.com/rubtsov-stan/blazebee.git
    cd blazebee
    ```
 3. Install dependencies:
