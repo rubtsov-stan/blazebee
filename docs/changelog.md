@@ -25,7 +25,7 @@ All notable changes to BlazeBee will be documented in this file.
 ### Security
 - 
 
-## [0.1.0] - 2024-XX-XX
+## [0.1.0] - 2026-01-01
 
 ### Added
 - Initial public release of BlazeBee
