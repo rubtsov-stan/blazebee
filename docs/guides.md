@@ -145,16 +145,48 @@ Run BlazeBee as a systemd service:
 
 ```ini
 [Unit]
-Description=BlazeBee Metrics Collector
-After=network.target
+Description=BlazeBee - Lightweight System Metrics Collector and MQTT Publisher
+Documentation=https://rubtsov-stan.github.io/blazebee/
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
+ExecStart=/usr/local/bin/blazebee --config /etc/blazebee/config.toml
 User=blazebee
-ExecStart=/usr/local/bin/blazebee
-Environment=BLAZEBEE_CONFIG=/etc/blazebee/config.toml
-Restart=always
-RestartSec=10
+Group=blazebee
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+RestrictRealtime=true
+
+
+WorkingDirectory=/var/lib/blazebee
+
+ReadWritePaths=/var/lib/blazebee
+ReadOnlyPaths=/etc/blazebee/config.toml
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=blazebee
+
+LimitNOFILE=65535
+LimitNPROC=512
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60
+StartLimitBurst=10
 
 [Install]
 WantedBy=multi-user.target
