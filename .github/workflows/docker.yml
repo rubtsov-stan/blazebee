@@ -22,13 +22,13 @@ jobs:
       matrix:
         variant:
           - name: minimal
-            features: minimal-collectors
+            features: minimal
             tag_suffix: minimal
           - name: standard
-            features: standard-collectors
+            features: standard
             tag_suffix: latest
           - name: large
-            features: large-collectors
+            features: large
             tag_suffix: large
 
     steps:
