@@ -21,6 +21,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install Zig and cargo-zigbuild
+        run: |
+          curl -L https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz -o zig.tar.xz
+          tar -xJf zig.tar.xz -C /usr/local
+          mv /usr/local/zig-linux-x86_64-0.13.0 /usr/local/zig
+          ln -s /usr/local/zig/zig /usr/local/bin/zig
+          rm zig.tar.xz
+          cargo install cargo-zigbuild
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -32,8 +41,8 @@ jobs:
 
       - name: Build release binary
         run: |
-          cargo build --release --features ${{ matrix.variant }} \
-            ${{ matrix.arch == 'arm64' && '--target aarch64-unknown-linux-gnu' || '' }}
+          cargo zigbuild --release --target ${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }} \
+            --features ${{ matrix.variant }}
 
       - name: Build deb package
         run: |

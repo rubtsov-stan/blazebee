@@ -7,7 +7,17 @@ RUN apk add --no-cache \
     gcc \
     make \
     cmake \
-    binutils
+    binutils \
+    curl \
+    unzip
+
+RUN curl -L https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz -o zig.tar.xz \
+    && tar -xJf zig.tar.xz -C /usr/local \
+    && mv /usr/local/zig-linux-x86_64-0.13.0 /usr/local/zig \
+    && ln -s /usr/local/zig/zig /usr/local/bin/zig \
+    && rm zig.tar.xz
+
+RUN cargo install cargo-zigbuild
 
 WORKDIR /usr/src/blazebee
 
@@ -22,9 +32,9 @@ RUN case "$TARGETPLATFORM" in \
     *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
     esac \
     && rustup target add "$TARGET" \
-    && cargo build --release --target "$TARGET" --features "${CARGO_FEATURES}" \
-    && strip "target/$TARGET/release/blazebee" \
-    && mv "target/$TARGET/release/blazebee" /blazebee
+    && cargo zigbuild --release --target "$TARGET" --features "${CARGO_FEATURES}" \
+    && zig objcopy --strip-all "target/$TARGET/release/blazebee" "target/$TARGET/release/blazebee.stripped" \
+    && mv "target/$TARGET/release/blazebee.stripped" /blazebee
 
 FROM scratch
 
