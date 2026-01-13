@@ -1,7 +1,15 @@
 [package]
 name = "blazebee-mqtt-v4"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+description = "MQTT v4 transport implementation for BlazeBee metrics collector"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["mqtt", "blazebee", "metrics"]
+categories = ["network-programming"]
 
 [dependencies]
 rumqttc = "0.25.0"

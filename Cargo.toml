@@ -2,11 +2,34 @@
 name = "blazebee"
 version = "0.1.0"
 edition = "2021"
+description = "Lightweight, high-performance system metrics collector for Linux"
+readme = "README.md"
+homepage = "https://rubtsov-stan.github.io/blazebee/"
+repository = "https://github.com/rubtsov-stan/blazebee"
+documentation = "https://rubtsov-stan.github.io/blazebee/"
+keywords = ["monitoring", "metrics", "mqtt", "system", "linux", "rust"]
+categories = ["command-line-utilities", "development-tools", "hardware", "network-programming"]
+license = "Apache-2.0"
+authors = ["Stanislav Rubtsov rubtzov.stas.gmail.com>"]
+rust-version = "1.86"                                            
+exclude = ["/target", "/docs", "/.github"]
+
 
 [workspace]
 members = [
     "crates/mqtt/v4",
 ]
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Stanislav Rubtsov rubtzov.stas.gmail.com>"]
+description = "BlazeBee workspace — lightweight system metrics collector and publisher"
+repository = "https://github.com/rubtsov-stan/blazebee"
+homepage = "https://rubtsov-stan.github.io/blazebee/"
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [features]
 default = ["blazebee-mqtt-v4", "standard"]
@@ -124,11 +147,6 @@ tempfile = "3.8"
 tracing-test = "0.2"
 tokio-test = "0.4"
 
-
-[workspace.package]
-version = "0.1.0"
-edition = "2024"
-license = "Apache-2.0"
 
 [profile.dev]
 opt-level = 0
