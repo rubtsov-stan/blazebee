@@ -32,15 +32,18 @@ jobs:
           - runner: ubuntu-latest
             name: amd64
             platforms: linux/amd64
-          - runner: ubuntu-latest-arm64
+          - runner: ubuntu-24.04-arm
             name: arm64
+            platforms: linux/arm64
+          - runner: ubuntu-latest
+            name: arm64-emulated
             platforms: linux/arm64
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Docker meta
+      - name: Docker meta (tags & labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -52,10 +55,11 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
 
-      - name: Set up QEMU (fallback for arm64 emulation)
-        if: matrix.platform.name == 'arm64' && runner.arch != 'arm64'
+      - name: Set up QEMU
+        if: matrix.platform.name == 'arm64-emulated'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
