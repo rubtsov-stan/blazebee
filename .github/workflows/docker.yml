@@ -10,87 +10,46 @@ on:
 
 jobs:
   docker:
-    runs-on: ${{ matrix.platform.runner }}
-    permissions:
-      contents: read
-      packages: write
-
     strategy:
       fail-fast: false
       matrix:
         variant:
           - name: minimal
             features: minimal
-            tag_suffix: minimal
+            tag: minimal
           - name: standard
             features: standard
-            tag_suffix: latest
+            tag: latest
           - name: large
             features: large
-            tag_suffix: large
-        platform:
-          - runner: ubuntu-latest
-            name: amd64
-            platforms: linux/amd64
-          - runner: ubuntu-24.04-arm
-            name: arm64
-            platforms: linux/arm64
-          - runner: ubuntu-latest
-            name: arm64-emulated
-            platforms: linux/arm64
+            tag: large
+        arch:
+          - name: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - name: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+
+    runs-on: ${{ matrix.arch.runner }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Docker meta (tags & labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/blazebee
-            ghcr.io/${{ github.repository_owner }}/blazebee
-          tags: |
-            type=raw,value=${{ matrix.variant.tag_suffix }}
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Set up QEMU
-        if: matrix.platform.name == 'arm64-emulated'
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
+      - uses: docker/login-action@v3
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Login to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: ${{ matrix.platform.platforms }}
+          platforms: ${{ matrix.arch.platform }}
           build-args: |
             CARGO_FEATURES=${{ matrix.variant.features }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
+          tags: |
+            blazebee:${{ matrix.variant.tag }}-${{ matrix.arch.name }}
