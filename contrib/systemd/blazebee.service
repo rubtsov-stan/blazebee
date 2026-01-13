@@ -7,9 +7,13 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/blazebee --config /etc/blazebee/config.toml
+Environment="RUST_LOG=info"
+Environment="RUST_BACKTRACE=1"
+KillMode=mixed
+KillSignal=SIGTERM
+
 User=blazebee
 Group=blazebee
-
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
@@ -22,9 +26,7 @@ RestrictNamespaces=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
 RestrictRealtime=true
 
-
 WorkingDirectory=/var/lib/blazebee
-
 ReadWritePaths=/var/lib/blazebee
 ReadOnlyPaths=/etc/blazebee/config.toml
 
@@ -39,6 +41,7 @@ TimeoutStopSec=10
 
 Restart=on-failure
 RestartSec=5s
+RestartPreventExitStatus=143
 StartLimitIntervalSec=60
 StartLimitBurst=10
 

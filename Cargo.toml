@@ -10,10 +10,10 @@ documentation = "https://rubtsov-stan.github.io/blazebee/"
 keywords = ["monitoring", "metrics", "mqtt", "system", "linux", "rust"]
 categories = ["command-line-utilities", "development-tools", "hardware", "network-programming"]
 license = "Apache-2.0"
-authors = ["Stanislav Rubtsov rubtzov.stas.gmail.com>"]
+authors = ["Stanislav Rubtsov rubtzov.stas@gmail.com>"]
 rust-version = "1.86"                                            
 exclude = ["/target", "/docs", "/.github"]
-
+publish=false
 
 [workspace]
 members = [
@@ -23,7 +23,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-authors = ["Stanislav Rubtsov rubtzov.stas.gmail.com>"]
+authors = ["Stanislav Rubtsov rubtzov.stas@gmail.com>"]
 description = "BlazeBee workspace — lightweight system metrics collector and publisher"
 repository = "https://github.com/rubtsov-stan/blazebee"
 homepage = "https://rubtsov-stan.github.io/blazebee/"
@@ -32,9 +32,33 @@ homepage = "https://rubtsov-stan.github.io/blazebee/"
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["blazebee-mqtt-v4", "standard"]
+default = ["blazebee-mqtt-v4"]
 
 blazebee-mqtt-v4 = ["dep:blazebee-mqtt-v4"]
+
+[[bin]]
+name = "blazebee"
+path = "src/main.rs"
+
+[package.metadata.deb]
+maintainer = "Stanislav Rubtsov rubtzov.stas@gmail.com>"
+assets = [
+    ["target/release/blazebee", "/usr/bin/blazebee", "755"],
+    ["config.example.toml", "/etc/blazebee/config.toml", "644"],
+    ["contrib/systemd/blazebee.service", "/lib/systemd/system/blazebee.service", "644"],
+]
+systemd-units = { enable = true, unit-name = "blazebee" }
+section = "utils"
+priority = "optional"
+
+[package.metadata.deb.variants.minimal]
+features = ["minimal"]
+
+[package.metadata.deb.variants.standard]
+features = ["standard"]
+
+[package.metadata.deb.variants.large]
+features = ["large"]
 
 
 minimal = [
