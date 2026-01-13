@@ -1,36 +1,35 @@
-FROM rust:1.86-slim-bookworm AS builder
+FROM --platform=$BUILDPLATFORM rust:1.86-alpine AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config \
-    libssl-dev \
-    build-essential \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache \
+    musl-dev \
+    openssl-dev \
+    pkgconf \
+    gcc \
+    make \
+    cmake \
+    binutils
 
-WORKDIR /blazebee
+WORKDIR /usr/src/blazebee
 
 COPY . .
 
-ARG CARGO_FEATURES=default
-ARG TARGETARCH=amd64
-ARG CONFIG_FILE=config.example.toml
+ARG TARGETPLATFORM
+ARG CARGO_FEATURES=standard
 
-RUN cargo build --release --features "${CARGO_FEATURES}" \
-    && mv target/release/blazebee /blazebee/blazebee
+RUN case "$TARGETPLATFORM" in \
+    "linux/amd64")  TARGET="x86_64-unknown-linux-musl" ;; \
+    "linux/arm64")  TARGET="aarch64-unknown-linux-musl" ;; \
+    *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
+    esac \
+    && rustup target add "$TARGET" \
+    && cargo build --release --target "$TARGET" --features "${CARGO_FEATURES}" \
+    && strip "target/$TARGET/release/blazebee" \
+    && mv "target/$TARGET/release/blazebee" /blazebee
 
-FROM debian:12-slim
+FROM scratch
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /blazebee /blazebee
+COPY --from=builder /etc/ssl/cert.pem /etc/ssl/cert.pem
 
-COPY --from=builder /blazebee/blazebee /usr/local/bin/blazebee
-
-ARG CONFIG_FILE=config.example.toml
-COPY ${CONFIG_FILE} /etc/blazebee/config.toml
-
-RUN mkdir -p /etc/blazebee
-
-RUN chmod +x /usr/local/bin/blazebee
-
-ENTRYPOINT ["/usr/local/bin/blazebee"]
+ENTRYPOINT ["/blazebee"]
+CMD ["--config", "/etc/blazebee/config.toml"]
