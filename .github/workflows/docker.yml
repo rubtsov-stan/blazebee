@@ -52,4 +52,5 @@ jobs:
           build-args: |
             CARGO_FEATURES=${{ matrix.variant.features }}
           tags: |
-            blazebee:${{ matrix.variant.tag }}-${{ matrix.arch.name }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/blazebee:${{ matrix.variant.tag }}-${{ matrix.arch.name }}
+            ghcr.io/${{ github.repository_owner }}/blazebee:${{ matrix.variant.tag }}-${{ matrix.arch.name }}
