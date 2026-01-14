@@ -47,14 +47,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Login to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push images
         uses: docker/build-push-action@v6
         with:
@@ -65,6 +57,5 @@ jobs:
             CARGO_FEATURES=${{ matrix.variant.features }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/blazebee:${{ matrix.variant.tag }}-${{ matrix.arch.name }}
-            ghcr.io/${{ github.repository_owner }}/blazebee:${{ matrix.variant.tag }}-${{ matrix.arch.name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
