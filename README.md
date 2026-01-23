@@ -2,55 +2,31 @@
 
 [![License](https://img.shields.io/github/license/rubtsov-stan/blazebee)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.86+-orange.svg)](https://www.rust-lang.org/)
-[![MQTT](https://img.shields.io/badge/mqtt-v4-blue)](https://mqtt.org/)
+[![MQTT](https://img.shields.io/badge/mqtt-v3-blue)](https://mqtt.org/)
 [![Docker](https://img.shields.io/badge/docker-automated-blue)](https://hub.docker.com/r/blazebee/blazebee)
 
 > **Fast, lightweight, and reliable** - The Rust-powered system metrics collector that sends real-time data to your MQTT infrastructure.
 
-## 🚀 Why BlazeBee?
+## Why BlazeBee?
 
 BlazeBee is a next-generation system metrics collector designed for the modern infrastructure landscape. Built with Rust for memory safety and performance, it efficiently gathers Linux system metrics and publishes them via MQTT, providing real-time visibility into your system's performance.
 
 ### Key Advantages
 
-- **⚡ Lightning Fast**: Written in Rust for optimal performance and minimal overhead
-- **📦 Modular Design**: Enable only the collectors you need, reducing resource consumption
-- **🔗 MQTT Native**: Built-in MQTT integration with configurable QoS and retention
-- **⚖️ Lightweight**: Minimal resource footprint suitable for resource-constrained environments
-- **🔧 Flexible**: Multiple build types (minimal, standard, large) for different use cases
-- **🌐 Cross-Platform**: Runs on AMD64 and ARM64 architectures with Docker support
+- **Lightning Fast**: Written in Rust for optimal performance and minimal overhead
+- **Modular Design**: Enable only the collectors you need, reducing resource consumption
+- **MQTT Native**: Built-in MQTT integration with configurable QoS and retention
+- **Lightweight**: Minimal resource footprint suitable for resource-constrained environments
+- **Flexible**: Multiple build types (minimal, standard, large) for different use cases
+- **Cross-Platform**: Runs on AMD64 and ARM64 architectures with Docker support
 
-## 🎯 Perfect For
+## Perfect For
 
 - **DevOps Teams**: Real-time infrastructure monitoring with minimal setup
 - **IoT Deployments**: Lightweight monitoring for resource-constrained devices
 - **Edge Computing**: Distributed monitoring with MQTT-based data aggregation
 - **System Administrators**: Comprehensive system metrics without complexity
 - **Cloud-Native Environments**: Containerized deployments with Kubernetes support
-
-## 🛠️ Quick Start
-
-### Docker Deployment (Recommended)
-
-```bash
-# Run with default configuration
-docker run --rm -it --network host blazebee/blazebee:standard
-
-# Mount custom configuration
-docker run --rm -it \
-  --network host \
-  -v /path/to/config.toml:/etc/blazebee/config.toml:ro \
-  blazebee/blazebee:standard
-```
-
-### Binary Installation
-
-```bash
-# Download and run (AMD64)
-wget https://rubtsov-stan.github.io/blazebee/releases/download/v0.1.0/blazebee-linux-amd64
-chmod +x blazebee-linux-amd64
-./blazebee-linux-amd64
-```
 
 ### Build from Source
 
@@ -60,7 +36,7 @@ cd blazebee
 make docker TYPE=standard
 ```
 
-## 📊 Supported Metrics
+## Supported Metrics
 
 BlazeBee offers a comprehensive set of system metrics through its modular collector system:
 
@@ -82,7 +58,7 @@ BlazeBee offers a comprehensive set of system metrics through its modular collec
 - **Network Stats**: ARP tables, netstat, sockstat, and connection tracking
 - **File Descriptors**: Usage statistics and limits
 
-## 🏗️ Architecture
+## Architecture
 
 BlazeBee follows a modular architecture that separates concerns:
 
@@ -91,11 +67,11 @@ BlazeBee follows a modular architecture that separates concerns:
 - **Transport Layer**: MQTT-based publishing with configurable serialization
 - **Execution Layer**: Async runtime for efficient metric collection
 
-## 📚 Documentation
+## Documentation
 
 Complete documentation is available at [blazebee.github.io/docs](https://rubtsov-stan.github.io/blazebee)
 
-## 🔒 Security & Reliability
+## Security & Reliability
 
 - **TLS Support**: Encrypted MQTT connections for secure data transmission
 - **Authentication**: Username/password and certificate-based authentication
@@ -103,11 +79,11 @@ Complete documentation is available at [blazebee.github.io/docs](https://rubtsov
 - **Error Isolation**: Collector failures don't affect other collectors
 - **Memory Safe**: Built with Rust to prevent memory-related vulnerabilities
 
-## 📄 License
+## License
 
 BlazeBee is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 BlazeBee wouldn't be possible without the excellent Rust ecosystem and the following libraries:
 
@@ -115,5 +91,4 @@ BlazeBee wouldn't be possible without the excellent Rust ecosystem and the follo
 - `tokio` - Async runtime
 - `serde` - Serialization framework
 - `tracing` - Application-level tracing
-
 ---
