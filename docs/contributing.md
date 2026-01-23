@@ -53,7 +53,7 @@ blazebee/
 │       ├── executor.rs  # Collection executor
 │       └── readiness.rs # Health checking
 ├── crates/              # Workspace members
-│   └── mqtt/v4/         # MQTT transport implementation
+│   └── mqtt/v3/         # MQTT transport implementation
 └── docs/                # Documentation
 ```
 

@@ -103,7 +103,7 @@ pub enum ConfigError {
 ///
 /// Combines logging, metrics, and transport settings into a single structure.
 /// The `transport` field is flattened from the underlying transport-specific
-/// configuration when the `blazebee-mqtt-v4` feature is enabled.
+/// configuration when the `blazebee-mqtt-v3` feature is enabled.
 #[derive(Serialize, Deserialize, Debug, Validate, Clone, Default)]
 #[serde(default)]
 pub struct Config {
@@ -117,8 +117,8 @@ pub struct Config {
     pub transport: TransportConfig,
 }
 
-#[cfg(feature = "blazebee-mqtt-v4")]
-pub type TransportConfig = blazebee_mqtt_v4::Config;
+#[cfg(feature = "blazebee-mqtt-v3")]
+pub type TransportConfig = blazebee_mqtt_v3::Config;
 
 impl Config {
     /// Constructs a new configuration by locating and loading the config file.

@@ -841,7 +841,7 @@ mod tests {
         let manager = MqttManager::new("localhost", 1883).unwrap();
         assert_eq!(manager.config().host, "localhost");
         assert_eq!(manager.config().port, 1883);
-        assert_eq!(manager.config().base_topic, "blazebee_mqtt_v4"); // Default base_topic
+        assert_eq!(manager.config().base_topic, "blazebee_mqtt_v3"); // Default base_topic
     }
 
     #[tokio::test]

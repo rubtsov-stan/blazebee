@@ -4,8 +4,8 @@
 //! are collected, how frequently they are gathered, and the metadata used
 //! for publishing with different transport type.
 
-#[cfg(feature = "blazebee-mqtt-v4")]
-use blazebee_mqtt_v4::EndpointMetadata;
+#[cfg(feature = "blazebee-mqtt-v3")]
+use blazebee_mqtt_v3::EndpointMetadata;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -23,7 +23,7 @@ pub struct Collector {
     pub metadata: CollectorMetadata,
 }
 
-#[cfg(feature = "blazebee-mqtt-v4")]
+#[cfg(feature = "blazebee-mqtt-v3")]
 /// Type alias for collector metadata when using MQTT transport.
 pub type CollectorMetadata = EndpointMetadata;
 

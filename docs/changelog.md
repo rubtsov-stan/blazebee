@@ -7,7 +7,7 @@ All notable changes to BlazeBee will be documented in this file.
 ### Added
 - Initial release of BlazeBee metrics collector
 - Core collector framework with modular architecture
-- MQTT transport implementation with v4 support
+- MQTT transport implementation with v3 support
 - Comprehensive set of system metric collectors
 
 ### Changed

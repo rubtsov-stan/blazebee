@@ -135,7 +135,7 @@ version = "0.1.0"
 dependencies = [
  "async-compression",
  "async-trait",
- "blazebee-mqtt-v4",
+ "blazebee-mqtt-v3",
  "bytes",
  "config",
  "console",
@@ -164,7 +164,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "blazebee-mqtt-v4"
+name = "blazebee-mqtt-v3"
 version = "0.1.0"
 dependencies = [
  "async-compression",

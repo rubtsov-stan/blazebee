@@ -56,9 +56,9 @@ impl fmt::Display for ReadinessState {
 }
 
 /// Listener implementation that translates MQTT connection state into readiness state.
-#[cfg(feature = "blazebee-mqtt-v4")]
+#[cfg(feature = "blazebee-mqtt-v3")]
 pub mod listener {
-    use blazebee_mqtt_v4::state::ConnectionState;
+    use blazebee_mqtt_v3::state::ConnectionState;
 
     use super::*;
 
@@ -68,7 +68,7 @@ pub mod listener {
         mut connection_state_rx: watch::Receiver<ConnectionState>,
         state_tx: watch::Sender<ReadinessState>,
     ) {
-        debug!("Launching ConnectionState listening (blazebee-mqtt-v4)");
+        debug!("Launching ConnectionState listening (blazebee-mqtt-v3)");
 
         // Send initial state
         {
@@ -138,11 +138,11 @@ impl Readiness {
 
     /// Starts a background task that translates MQTT connection state into readiness state.
     ///
-    /// This method is only available when the `blazebee-mqtt-v4` feature is enabled.
-    #[cfg(feature = "blazebee-mqtt-v4")]
+    /// This method is only available when the `blazebee-mqtt-v3` feature is enabled.
+    #[cfg(feature = "blazebee-mqtt-v3")]
     pub async fn start_listening(
         &self,
-        connection_state_rx: watch::Receiver<blazebee_mqtt_v4::state::ConnectionState>,
+        connection_state_rx: watch::Receiver<blazebee_mqtt_v3::state::ConnectionState>,
     ) {
         let state_tx = self.state_tx.clone();
         tokio::spawn(async move {

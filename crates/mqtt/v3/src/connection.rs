@@ -522,7 +522,7 @@ mod connection_manager_tests {
     /// Helper to create test configuration
     fn create_test_broker_config() -> Config {
         Config {
-            base_topic: "test-blazebee_mqtt_v4".to_string(),
+            base_topic: "test-blazebee_mqtt_v3".to_string(),
             host: "localhost".to_string(),
             port: 1883,
             connection_timeout: 30,
@@ -585,7 +585,7 @@ mod connection_kernel_tests {
 
     fn create_test_broker_config() -> Config {
         Config {
-            base_topic: "test-blazebee_mqtt_v4".to_string(),
+            base_topic: "test-blazebee_mqtt_v3".to_string(),
             host: "localhost".to_string(),
             port: 1883,
             connection_timeout: 5,

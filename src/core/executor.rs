@@ -170,9 +170,9 @@ pub async fn log_memory_stats() {
 }
 
 /// MQTT-specific publisher implementation.
-#[cfg(feature = "blazebee-mqtt-v4")]
+#[cfg(feature = "blazebee-mqtt-v3")]
 #[async_trait::async_trait]
-impl Publisher for blazebee_mqtt_v4::publisher::Publisher {
+impl Publisher for blazebee_mqtt_v3::publisher::Publisher {
     async fn publish(
         &self,
         data: &(dyn Serialize + Send + Sync),

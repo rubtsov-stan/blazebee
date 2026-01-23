@@ -1,6 +1,6 @@
-use blazebee_mqtt_v4::{
-    EndpointMetadata, MqttManager, Publisher,
+use blazebee_mqtt_v3::{
     config::{CompressionType, SerializationConfig, SerializationFormat},
+    EndpointMetadata, MqttManager, Publisher,
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -158,7 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("\n=== Using Publisher Presets ===");
 
         // High performance preset
-        let publisher_hp = blazebee_mqtt_v4::publisher::presets::high_performance(instance.clone());
+        let publisher_hp = blazebee_mqtt_v3::publisher::presets::high_performance(instance.clone());
         let data = DataPacket {
             id: 6,
             values: vec![42.0],

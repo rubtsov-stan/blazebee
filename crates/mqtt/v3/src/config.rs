@@ -394,7 +394,7 @@ impl Default for Config {
     /// For production, always load config from file and validate externally.
     fn default() -> Self {
         Config {
-            base_topic: "blazebee_mqtt_v4".to_string(), // Default base_topic for namespace isolation
+            base_topic: "blazebee_mqtt_v3".to_string(), // Default base_topic for namespace isolation
             host: "localhost".to_string(),
             port: 1883,
             connection_timeout: 30,

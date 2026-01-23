@@ -22,7 +22,7 @@
 //!
 //! ## Features
 //!
-//! * `balzebee-mqtt-v4` — Enables MQTT transport using the `blazebee_mqtt_v4` crate
+//! * `balzebee-mqtt-v3` — Enables MQTT transport using the `blazebee_mqtt_v3` crate
 //!   (default: enabled).
 //!
 //! Additional conditional features control individual collectors and

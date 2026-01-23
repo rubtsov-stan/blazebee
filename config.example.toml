@@ -42,7 +42,7 @@ identifier = "blazebee"
 
 # =============================================================================
 # Transport configuration (MQTT)
-# Only used if feature "blazebee-mqtt-v4" is enabled
+# Only used if feature "blazebee-mqtt-v3" is enabled
 # =============================================================================
 [transport]
 # MQTT broker address

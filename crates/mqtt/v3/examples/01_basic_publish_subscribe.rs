@@ -1,4 +1,4 @@
-use blazebee_mqtt_v4::{EndpointMetadata, MqttManager, Publisher};
+use blazebee_mqtt_v3::{EndpointMetadata, MqttManager, Publisher};
 use serde::{Deserialize, Serialize};
 use tokio::signal;
 use tracing::{error, info};

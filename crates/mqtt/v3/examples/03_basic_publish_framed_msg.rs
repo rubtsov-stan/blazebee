@@ -1,4 +1,4 @@
-use blazebee_mqtt_v4::{
+use blazebee_mqtt_v3::{
     config::{CompressionType, Config, FramingConfig, SerializationConfig, SerializationFormat},
     EndpointMetadata, MqttManager, Publisher,
 };

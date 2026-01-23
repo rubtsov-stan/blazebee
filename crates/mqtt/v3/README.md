@@ -1,4 +1,4 @@
-# BLAZEBEE MQTT-v4 Manager
+# BLAZEBEE MQTT-3 Manager
 
 A production-ready async MQTT client for Rust with automatic reconnection, multiple serialization formats, and comprehensive error handling. Built on top of `rumqttc` to provide a higher-level, more ergonomic interface for MQTT operations.
 
@@ -22,7 +22,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-blazebee-mqtt-v4 = "0.1"
+blazebee-mqtt-v3 = "0.1"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 ```
@@ -30,7 +30,7 @@ serde = { version = "1", features = ["derive"] }
 ### Minimal Example
 
 ```rust
-use blazebee_mqtt_v4::{MqttManager, EndpointMetadata, Publisher};
+use blazebee_mqtt_v3::{MqttManager, EndpointMetadata, Publisher};
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
@@ -111,7 +111,7 @@ let manager = MqttManager::from_config(config)?;
 ### Programmatic Configuration
 
 ```rust
-use blazebee_mqtt_v4::{Config, TlsConfig};
+use blazebee_mqtt_v3::{Config, TlsConfig};
 
 let config = Config {
     base_topic: "iot-app".into(),

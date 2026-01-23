@@ -169,12 +169,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let readiness = Readiness::default();
 
     let (publisher, instance): (Arc<dyn blazebee::core::executor::Publisher>, _) = {
-        #[cfg(feature = "blazebee-mqtt-v4")]
+        #[cfg(feature = "blazebee-mqtt-v3")]
         {
             info!("MQTT transport enabled");
             info!("Starting MQTT client...");
 
-            let manager = blazebee_mqtt_v4::MqttManager::from_config(cfg.transport.clone())
+            let manager = blazebee_mqtt_v3::MqttManager::from_config(cfg.transport.clone())
                 .unwrap_or_else(|e| {
                     error!("Failed to create MqttManager: {}", e);
                     process::exit(1);
@@ -228,7 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ser_config.format, ser_config.compression, ser_config.compression_threshold
             );
 
-            let mqtt_publisher = blazebee_mqtt_v4::Publisher::with_config(
+            let mqtt_publisher = blazebee_mqtt_v3::Publisher::with_config(
                 Arc::new(instance.clone()),
                 &ser_config,
                 &cfg.transport.base_topic,
@@ -240,7 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
         }
 
-        #[cfg(not(feature = "blazebee-mqtt-v4"))]
+        #[cfg(not(feature = "blazebee-mqtt-v3"))]
         {
             info!("Running without MQTT (noop publisher)");
             struct NoopPublisher;
@@ -270,7 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ = tokio::signal::ctrl_c() => {
             info!("Received Ctrl+C — initiating graceful shutdown...");
 
-            #[cfg(feature = "blazebee-mqtt-v4")]
+            #[cfg(feature = "blazebee-mqtt-v3")]
             {
                 instance.cancel_token().cancel();
                 debug!("Cancellation token triggered — MQTT disconnecting...");

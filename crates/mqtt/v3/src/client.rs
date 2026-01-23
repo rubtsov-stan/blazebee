@@ -640,7 +640,7 @@ mod tests {
     #[test]
     fn test_build_from_config() {
         let config = Config {
-            base_topic: "test-blazebee_mqtt_v4".to_string(),
+            base_topic: "test-blazebee_mqtt_v3".to_string(),
             host: "localhost".to_string(),
             port: 1883,
             connection_timeout: 30,
@@ -669,7 +669,7 @@ mod tests {
     #[test]
     fn test_build_from_config_invalid() {
         let config = Config {
-            base_topic: "test-blazebee_mqtt_v4".to_string(),
+            base_topic: "test-blazebee_mqtt_v3".to_string(),
             host: "".to_string(), // Invalid: empty host
             port: 1883,
             connection_timeout: 30,
