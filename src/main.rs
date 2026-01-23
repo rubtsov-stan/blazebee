@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     process,
     sync::{Arc, OnceLock},
 };
@@ -7,8 +8,9 @@ use blazebee::{
     config::Config,
     core::{collectors::registry::Collectors, executor::Executor, readiness::Readiness},
     logger::LoggerManager,
-    print_error,
+    print_error, print_info,
 };
+use console::{style, Term};
 use tracing::{debug, error, info};
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -22,53 +24,111 @@ pub fn config() -> &'static Config {
     })
 }
 
-fn log_collectors_table(enabled: Vec<&str>, available: Vec<&'static str>) {
-    use std::collections::BTreeSet;
+fn print_banner() {
+    const LOGO: &[&str] = &[
+        "██████╗ ██╗      █████╗ ███████╗███████╗██████╗ ███████╗███████╗",
+        "██╔══██╗██║     ██╔══██╗╚══███╔╝██╔════╝██╔══██╗██╔════╝██╔════╝",
+        "██████╔╝██║     ███████║  ███╔╝ █████╗  ██████╔╝█████╗  █████╗  ",
+        "██╔══██╗██║     ██╔══██║ ███╔╝  ██╔══╝  ██╔══██╗██╔══╝  ██╔══╝  ",
+        "██████╔╝███████╗██║  ██║███████╗███████╗██████╔╝███████╗███████╗",
+        "╚═════╝ ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═════╝ ╚══════╝╚══════╝",
+    ];
 
-    let enabled_set: BTreeSet<&str> = enabled.into_iter().collect();
-    let available_set: BTreeSet<&str> = available.into_iter().collect();
+    let term = Term::stdout();
+    let term_width = term.size().1 as usize;
 
-    // Union of both sets to show *everything* explicitly
-    let all_names: BTreeSet<&str> = enabled_set
-        .iter()
-        .copied()
-        .chain(available_set.iter().copied())
-        .collect();
+    let logo_width = LOGO.iter().map(|l| l.chars().count()).max().unwrap_or(0);
 
-    let name_width = all_names
-        .iter()
-        .map(|s| s.len())
-        .max()
-        .unwrap_or(10)
-        .max("Collector".len());
+    let box_width = logo_width;
+    let total_width = box_width + 4;
 
-    let header = format!("{:<width$} | Status", "Collector", width = name_width);
-    let sep = format!("{}-+-{}", "-".repeat(name_width), "-".repeat(12));
+    let outer_pad = term_width.saturating_sub(total_width) / 2;
 
-    info!("{}", header);
-    info!("{}", sep);
+    let pad = " ".repeat(outer_pad);
+    let horizontal = "═".repeat(box_width + 2);
 
-    for name in all_names {
-        let status = match (enabled_set.contains(name), available_set.contains(name)) {
-            // Configured and present in registry — normal case
-            (true, true) => "ENABLED",
+    term.write_line(&format!("{pad}╔{horizontal}╗")).ok();
 
-            // Enabled in config but missing in registry — configuration error
-            (true, false) => "ENABLED (missing)",
+    for line in LOGO {
+        let line_width = line.chars().count();
+        let inner_pad = box_width.saturating_sub(line_width);
+        let left = inner_pad / 2;
+        let right = inner_pad - left;
 
-            // Present in registry but not enabled
-            (false, true) => "DISABLED",
-
-            // Theoretically impossible, but kept for completeness
-            (false, false) => "UNKNOWN",
-        };
-
-        info!("{:<width$} | {}", name, status, width = name_width);
+        term.write_line(&format!(
+            "{pad}║ {}{}{} ║",
+            " ".repeat(left),
+            style(line).bold(),
+            " ".repeat(right),
+        ))
+        .ok();
     }
+
+    term.write_line(&format!("{pad}╚{horizontal}╝")).ok();
+    term.write_line("").ok();
+}
+
+fn print_collectors_table(enabled: &[&str], available: &[&'static str]) {
+    use std::collections::HashSet;
+
+    let enabled_set: HashSet<&str> = enabled.iter().copied().collect();
+
+    let table: String = available
+        .iter()
+        .map(|&collector| {
+            let status = if enabled_set.contains(collector) {
+                format!("{} {}", style("+").green(), style(collector).bold())
+            } else {
+                format!("{} {}", style("-").dim(), style(collector).dim())
+            };
+            format!("    {}", status)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    print_info!("Available collectors:\n{}", table);
+}
+
+pub fn print_config_toml<T>(config: &T)
+where
+    T: serde::Serialize,
+{
+    let toml = toml::to_string_pretty(config)
+        .unwrap_or_else(|_| "<failed to serialize config>".to_string());
+
+    println!("{}", format_toml(&toml));
+}
+
+#[inline]
+fn ui_debug<F: FnOnce()>(f: F) {
+    if cfg!(debug_assertions) && tracing::level_enabled!(tracing::Level::DEBUG) {
+        f();
+    }
+}
+
+fn format_toml(input: &str) -> String {
+    input
+        .lines()
+        .map(|line| {
+            if line.starts_with('[') {
+                console::style(line).cyan().bold().to_string()
+            } else if let Some((k, v)) = line.split_once('=') {
+                format!(
+                    "{} = {}",
+                    console::style(k.trim()).yellow().bold(),
+                    console::style(v.trim()).green()
+                )
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    print_banner();
     let cfg = config();
     let mut logger_manager = LoggerManager::new(cfg.logger.clone()).unwrap_or_else(|e| {
         print_error!("Failed to setup Log Manager: {}", e);
@@ -79,10 +139,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         print_error!("Failed to init Log Manager: {}", e);
         process::exit(1);
     });
-    debug!("{:#?}", cfg.transport);
+    ui_debug(|| {
+        print_config_toml(cfg);
+    });
     info!("Log level: {}", cfg.logger.level);
 
-    log_collectors_table(cfg.metrics.collectors.enabled_names(), Collectors::list());
+    let enabled_names = cfg.metrics.collectors.enabled_names();
+    let available_list = Collectors::list();
+    let enabled_refs: Vec<&str> = enabled_names.iter().map(|s| s.as_ref()).collect();
+    let available_set: HashSet<&str> = available_list.iter().copied().collect();
+    let missing: Vec<&str> = enabled_refs
+        .iter()
+        .filter(|&&name| !available_set.contains(name))
+        .copied()
+        .collect();
+
+    if !missing.is_empty() {
+        print_error!(
+            "{}",
+            style("Required collector(s) not available!").red().bold()
+        );
+        for name in missing {
+            println!("  -> {}", style(name).red().bold());
+        }
+        print_collectors_table(&[], &available_list[..]);
+        std::process::exit(1);
+    }
+
     let readiness = Readiness::default();
 
     let (publisher, instance): (Arc<dyn blazebee::core::executor::Publisher>, _) = {

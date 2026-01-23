@@ -138,7 +138,7 @@ inventory = "0.3.21"
 futures = "0.3.31"
 erased-serde = "0.4.9"
 libc = "0.2.178"
-
+console = "0.15"
 
 [dev-dependencies]
 tempdir = "0.3.7"

@@ -26,8 +26,15 @@ pub mod metrics;
 #[macro_export]
 macro_rules! print_info {
     ($($arg:tt)*) => {
-        println!("{} INFO {}",
-            time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        println!("{}  {} {}",
+            console::style(
+                time::OffsetDateTime::now_utc()
+                    .format(&time::format_description::parse(
+                        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z"
+                    ).unwrap())
+                    .unwrap()
+            ).dim(),
+            console::style("INFO").green(),
             format_args!($($arg)*)
         );
     };
@@ -36,8 +43,15 @@ macro_rules! print_info {
 #[macro_export]
 macro_rules! print_warn {
     ($($arg:tt)*) => {
-        println!("{} WARN {}",
-            time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        println!("{}  {} {}",
+            console::style(
+                time::OffsetDateTime::now_utc()
+                    .format(&time::format_description::parse(
+                        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z"
+                    ).unwrap())
+                    .unwrap()
+            ).dim(),
+            console::style("WARN").yellow(),
             format_args!($($arg)*)
         );
     };
@@ -46,8 +60,15 @@ macro_rules! print_warn {
 #[macro_export]
 macro_rules! print_error {
     ($($arg:tt)*) => {
-        println!("{} ERROR {}",
-            time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap(),
+        println!("{}  {} {}",
+            console::style(
+                time::OffsetDateTime::now_utc()
+                    .format(&time::format_description::parse(
+                        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z"
+                    ).unwrap())
+                    .unwrap()
+            ).dim(),
+            console::style("ERROR").red(),
             format_args!($($arg)*)
         );
     };
@@ -160,43 +181,5 @@ impl Config {
 
         print_info!("Successfully loaded config from: {}", path.display());
         Ok(config)
-    }
-
-    /// Serializes and writes the configuration to the specified path.
-    ///
-    /// # Errors
-    ///
-    /// Returns `ConfigError::SerializationError` or IO error on failure.
-    pub fn save(&self, path: &Path) -> Result<(), ConfigError> {
-        let config_str = toml::to_string_pretty(self)
-            .map_err(|e| ConfigError::SerializationError(e.to_string()))?;
-        fs::write(path, config_str)?;
-        print_info!("Config saved to: {}", path.display());
-        Ok(())
-    }
-
-    /// Writes a default configuration file to a standard location if it does not already exist.
-    ///
-    /// This is typically used during first-run setup or installation scripts.
-    ///
-    /// # Errors
-    ///
-    /// Propagates errors from serialization or file writing.
-    pub fn write_default_config(&self) -> Result<(), ConfigError> {
-        let default_path = Path::new("/var/lib/blazebee/config.toml");
-        if default_path.exists() {
-            print_warn!(
-                "Default config not written: already exists at {}",
-                default_path.display()
-            );
-            return Ok(());
-        }
-
-        self.save(default_path)?;
-        print_info!(
-            "Default configuration created at {}",
-            default_path.display()
-        );
-        Ok(())
     }
 }
