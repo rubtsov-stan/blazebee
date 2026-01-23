@@ -5,6 +5,7 @@
 [![MQTT](https://img.shields.io/badge/mqtt-v3-blue)](https://mqtt.org/)
 [![Docker](https://img.shields.io/badge/docker-automated-blue)](https://hub.docker.com/r/blazebee/blazebee)
 
+<div align="center" style="background-color: transparent;">
 <pre>
 ██████╗ ██╗      █████╗ ███████╗███████╗██████╗ ███████╗███████╗
 ██╔══██╗██║     ██╔══██╗╚══███╔╝██╔════╝██╔══██╗██╔════╝██╔════╝
@@ -13,6 +14,7 @@
 ██████╔╝███████╗██║  ██║███████╗███████╗██████╔╝███████╗███████╗
 ╚═════╝ ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═════╝ ╚══════╝╚══════╝
 </pre>
+</div>
 
 > **Fast, lightweight, and reliable** - The Rust-powered system metrics collector that sends real-time data to your MQTT infrastructure.
 
