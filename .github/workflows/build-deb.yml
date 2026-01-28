@@ -2,18 +2,21 @@ name: Build Debian Packages
 
 on:
   push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+    tags:
+      - v*
 
 jobs:
   build-deb:
     strategy:
       fail-fast: false
       matrix:
-        variant: [minimal, standard, large]
+        variant:
+          - name: minimal
+            features: minimal
+          - name: standard
+            features: standard
+          - name: large
+            features: large
         arch:
           - name: amd64
             runner: ubuntu-latest
@@ -25,9 +28,11 @@ jobs:
     runs-on: ${{ matrix.arch.runner }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.86
           target: ${{ matrix.arch.target }}
@@ -40,20 +45,29 @@ jobs:
       - name: Install cargo-deb
         run: cargo install cargo-deb
 
+      - name: Verify version matches tag
+        run: |
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          TAG=${GITHUB_REF#refs/tags/v}
+          if [[ "$VERSION" != "$TAG" ]]; then
+            echo "Version mismatch: Cargo.toml=$VERSION, Git tag=$TAG"
+            exit 1
+          fi
+
       - name: Build binary
         run: |
           cargo build --release \
             --target ${{ matrix.arch.target }} \
-            --features ${{ matrix.variant }}
+            --features ${{ matrix.variant.features }}
 
       - name: Build deb
         run: |
           cargo deb \
             --target ${{ matrix.arch.target }} \
-            --variant ${{ matrix.variant }}
+            --variant ${{ matrix.variant.name }}
 
       - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
-          name: blazebee-deb-${{ matrix.variant }}-${{ matrix.arch.name }}
+          name: blazebee-deb-${{ matrix.variant.name }}-${{ matrix.arch.name }}
           path: target/debian/*.deb

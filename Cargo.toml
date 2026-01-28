@@ -24,6 +24,12 @@ members = [
     "crates/mqtt/v3",
 ]
 
+[package.metadata.release]
+tag-name = "v{{version}}"
+sign-tag = false
+push = false
+publish = false
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

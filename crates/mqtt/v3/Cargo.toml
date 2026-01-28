@@ -7,9 +7,15 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-readme = "../../README.md"
+readme = "../../../README.md"
 keywords = ["mqtt", "blazebee", "metrics"]
 categories = ["network-programming"]
+
+[package.metadata.release]
+tag-name = "v{{version}}"
+sign-tag = false
+push = false
+publish = false
 
 [dependencies]
 rumqttc = "0.25.0"
