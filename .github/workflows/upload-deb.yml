@@ -14,12 +14,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set TAG variable
+        run: |
+          if [ -n "${GITHUB_REF#refs/tags/}" ]; then
+            echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          else
+            echo "TAG=unknown" >> $GITHUB_ENV
+          fi
+
+      - name: Show TAG
+        run: echo "TAG=$TAG"
+
       - name: Download all DEB artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./deb-artifacts
 
-      - name: Create / Upload assets to Release
+      - name: Check prerelease
+        run: |
+          if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
+            echo "Prerelease detected ($TAG). Uploading deb to Release anyway."
+          fi
+
+      - name: Upload DEB packages to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: ./deb-artifacts/**/*.deb
