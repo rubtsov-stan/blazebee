@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - v*
+  workflow_dispatch:
 
 jobs:
   docker:
@@ -16,7 +17,7 @@ jobs:
             tag: minimal
           - name: standard
             features: standard
-            tag: standard
+            tag: latest
           - name: large
             features: large
             tag: large
@@ -34,6 +35,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set TAG variable
+        run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Show TAG
+        run: echo "TAG=$TAG"
+
+      - name: Check prerelease
+        run: |
+          if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
+            echo "Prerelease detected ($TAG). Docker push skipped."
+            exit 0
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -43,30 +57,15 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Detect prerelease
-        id: version
-        run: |
-          TAG=${GITHUB_REF#refs/tags/v}
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          if [[ "$TAG" == *"-"* ]]; then
-            echo "stable=false" >> $GITHUB_OUTPUT
-          else
-            echo "stable=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Fail deploy on prerelease
-        if: steps.version.outputs.stable == 'false'
-        run: |
-          echo "Prerelease detected ($TAG). Docker push skipped."
-          exit 1
-
       - name: Build and push images
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ steps.version.outputs.stable == 'true' }}
+          push: true
           platforms: ${{ matrix.arch.platform }}
           build-args: |
             CARGO_FEATURES=${{ matrix.variant.features }}
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/blazebee:${{ matrix.variant.name }}-${{ matrix.arch.name }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/blazebee:${{ matrix.variant.tag }}-${{ matrix.arch.name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
