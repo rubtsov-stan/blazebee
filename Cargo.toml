@@ -1,6 +1,6 @@
 [package]
 name = "blazebee"
-version = "0.1.0"
+version = "0.1.1-beta.1"
 edition = "2021"
 description = "Lightweight, high-performance system metrics collector for Linux"
 readme = "README.md"
@@ -31,7 +31,7 @@ push = false
 publish = false
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1-beta.1"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Stanislav Rubtsov <rubtzov.stas@gmail.com>"]
