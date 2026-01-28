@@ -16,24 +16,25 @@ jobs:
 
       - name: Set TAG variable
         run: |
-          TAG=$(git tag --points-at $GITHUB_SHA)
-          if [ -z "$TAG" ]; then
-            TAG=${GITHUB_REF#refs/tags/}
+          if [ -n "${GITHUB_REF#refs/tags/}" ]; then
+            echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          else
+            echo "TAG=unknown" >> $GITHUB_ENV
           fi
-          if [ -z "$TAG" ]; then
-            echo "No tag detected. Exiting without uploading DEB."
-            exit 0
-          fi
-          echo "TAG=$TAG" >> $GITHUB_ENV
 
       - name: Show TAG
-        run: |
-          echo "Detected tag: $TAG"
+        run: echo "TAG=$TAG"
 
       - name: Download all DEB artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./deb-artifacts
+
+      - name: Check prerelease
+        run: |
+          if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
+            echo "Prerelease detected ($TAG). Uploading deb to Release anyway."
+          fi
 
       - name: Upload DEB packages to GitHub Release
         uses: softprops/action-gh-release@v1
