@@ -2,11 +2,11 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
+	base: '/blazebee/',
 	redirects: {
 		'/': 'getting-started/linux',
 	},
 	integrations: [
-
 		starlight({
 			title: 'BlazeBee Documentation',
 			description: 'Lightning-fast system metrics collector for modern infrastructure',
