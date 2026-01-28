@@ -82,8 +82,6 @@ clean_session = false
 # How often to collect and publish metrics (seconds)
 collection_interval = 5
 
-# How often to refresh data in memory (usually = collection_interval or larger)
-refresh_interval = 60
 
 # List of enabled collectors
 [[metrics.collectors.enabled]]

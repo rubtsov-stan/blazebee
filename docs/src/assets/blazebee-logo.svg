@@ -1,0 +1,16 @@
+<svg 
+  xmlns="http://www.w3.org/2000/svg" 
+  viewBox="0 0 520 120" 
+  width="260" height="60"
+  fill="currentColor"
+>
+  <text 
+    x="0" y="90" 
+    font-family="Inter, system-ui, -apple-system, sans-serif"
+    font-weight="900"
+    font-size="90"
+    letter-spacing="2"
+  >
+    BLAZEBEE
+  </text>
+</svg>

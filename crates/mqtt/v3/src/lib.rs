@@ -195,8 +195,6 @@
 //! port = 8883
 //! clean_session = false
 //! keep_alive = 60
-//! reconnect_delay = 1
-//! max_reconnect_attempts = 0  # Unlimited
 //!
 //! [tls]
 //! ca_cert_path = "/etc/mqtt/ca.pem"
@@ -332,16 +330,6 @@
 //! ```bash
 //! cargo test --all
 //! cargo test --doc  # Doc comment examples
-//! ```
-//!
-//! For integration testing with a real broker:
-//!
-//! ```bash
-//! # Start a broker
-//! docker run -p 1883:1883 eclipse-mosquitto
-//!
-//! # Run integration tests
-//! cargo test --test integration_tests
 //! ```
 //!
 //! # Examples

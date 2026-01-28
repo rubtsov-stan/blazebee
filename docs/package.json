@@ -1,0 +1,35 @@
+{
+  "name": "blazebee-docs",
+  "version": "1.0.0",
+  "description": "BlazeBee - Lightning-fast system metrics collector documentation",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.29.0",
+    "astro": "^4.15.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "keywords": [
+    "rust",
+    "metrics",
+    "monitoring",
+    "mqtt",
+    "system-metrics",
+    "devops",
+    "collector"
+  ],
+  "author": "Stan Rubtsov",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/rubtsov-stan/blazebee",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rubtsov-stan/blazebee.git"
+  }
+}

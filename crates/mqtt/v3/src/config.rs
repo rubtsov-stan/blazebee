@@ -122,30 +122,6 @@ pub struct Config {
     #[validate(range(min = 1, max = 65535, message = "Port must be between 1 and 65535"))]
     pub port: u16,
 
-    /// Connection timeout in seconds.
-    ///
-    /// How long to wait for the TCP connection and MQTT CONNACK before giving up.
-    /// If exceeded, treated as a connection error and triggers backoff/retry.
-    ///
-    /// # Validation
-    /// - Range: 1-300 seconds
-    ///
-    /// # Typical Values
-    /// - 10: For local networks
-    /// - 30: Default, covers most cases
-    /// - 60: For slow/unstable networks
-    ///
-    /// # Examples
-    /// ```toml
-    /// connection_timeout = 30
-    /// ```
-    #[validate(range(
-        min = 1,
-        max = 300,
-        message = "Connection timeout must be between 1 and 300 seconds"
-    ))]
-    pub connection_timeout: u64,
-
     /// Whether to request a clean session from the broker.
     ///
     /// If true: Broker discards previous subscriptions and pending messages.
@@ -285,78 +261,6 @@ pub struct Config {
     ))]
     pub request_channel_capacity: Option<u8>,
 
-    /// Initial delay before first reconnection attempt (seconds).
-    ///
-    /// Used by exponential backoff algorithm. Prevents thundering herd
-    /// when broker recovers from outage.
-    ///
-    /// # Validation
-    /// - Range: 1-60 seconds
-    ///
-    /// # Typical Values
-    /// - 1: Quick recovery (suitable for stable networks)
-    /// - 5: Balanced approach
-    /// - 10-30: Brokers with slow recovery
-    ///
-    /// # Examples
-    /// ```toml
-    /// reconnect_delay = 1
-    /// ```
-    #[validate(range(
-        min = 1,
-        max = 60,
-        message = "Reconnect delay must be between 1 and 60 seconds"
-    ))]
-    pub reconnect_delay: u64,
-
-    /// Maximum number of reconnection attempts.
-    ///
-    /// After this many failed attempts, the client gives up and signals
-    /// an error. Set to 0 for infinite retries.
-    ///
-    /// # Validation
-    /// - Range: 0-100 (0 = unlimited)
-    ///
-    /// # Typical Values
-    /// - 0: Retry forever (for critical services)
-    /// - 5: Reasonable limit (gives up after ~2 minutes with default backoff)
-    /// - 10: Generous limit
-    ///
-    /// # Examples
-    /// ```toml
-    /// max_reconnect_attempts = 5
-    /// ```
-    #[validate(range(
-        min = 0,
-        max = 100,
-        message = "Max reconnect attempts must be between 0 and 100"
-    ))]
-    pub max_reconnect_attempts: u64,
-
-    /// Exponential backoff multiplier.
-    ///
-    /// Each retry delay is multiplied by this value (capped at a maximum).
-    /// Higher values cause faster exponential growth but may retry too slowly.
-    ///
-    /// # Validation
-    /// - Range: 1-30
-    ///
-    /// # Typical Values
-    /// - 1.1: Gentle growth (1s -> 1.1s -> 1.21s -> ...)
-    /// - 1.5: Moderate growth
-    /// - 2.0: Aggressive growth (1s -> 2s -> 4s -> ...)
-    ///
-    /// # Examples
-    /// ```toml
-    /// reconnect_backoff_delimiter = 1.1  # 10% increase per attempt
-    /// ```
-    #[validate(range(
-        min = 1,
-        max = 30,
-        message = "Reconnect backoff delimiter must be between 1 and 30"
-    ))]
-    pub reconnect_backoff_delimiter: u64,
-
     /// Optional TLS configuration.
     ///
     /// If present and enabled, broker connection will use TLS encryption.
@@ -397,16 +301,12 @@ impl Default for Config {
             base_topic: "blazebee_mqtt_v3".to_string(), // Default base_topic for namespace isolation
             host: "localhost".to_string(),
             port: 1883,
-            connection_timeout: 30,
             clean_session: false,
             max_inflight: 10,
             keep_alive: 60,
             client_id: Uuid::new_v4().to_string(),
             max_packet_size: Some(65_535),
             request_channel_capacity: Some(1),
-            reconnect_delay: 5,
-            max_reconnect_attempts: 5,
-            reconnect_backoff_delimiter: 2,
             tls: Some(TlsConfig::default()),
             serialization: Some(SerializationConfig::default().into_config()),
             framing: FramingConfig::default(),

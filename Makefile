@@ -1,7 +1,6 @@
 DOCKER_USERNAME ?= rubtsov-stan
 IMAGE_NAME ?= blazebee
 REGISTRY ?= docker.io
-GHCR_REGISTRY ?= ghcr.io/$(DOCKER_USERNAME)
 CONFIG_PATH ?= config.example.toml
 
 TYPES := minimal standard large
@@ -24,8 +23,6 @@ docker-%:
 		--build-arg CARGO_FEATURES=$* \
 		--tag $(REGISTRY)/$(DOCKER_USERNAME)/$(IMAGE_NAME):$* \
 		--tag $(REGISTRY)/$(DOCKER_USERNAME)/$(IMAGE_NAME):$*-$(shell git rev-parse --short HEAD) \
-		--tag $(GHCR_REGISTRY)/$(IMAGE_NAME):$* \
-		--tag $(GHCR_REGISTRY)/$(IMAGE_NAME):$*-$(shell git rev-parse --short HEAD) \
 		--push .
 
 docker-latest:
@@ -35,8 +32,6 @@ docker-latest:
 		--build-arg CARGO_FEATURES=standard \
 		--tag $(REGISTRY)/$(DOCKER_USERNAME)/$(IMAGE_NAME):latest \
 		--tag $(REGISTRY)/$(DOCKER_USERNAME)/$(IMAGE_NAME):latest-$(shell git rev-parse --short HEAD) \
-		--tag $(GHCR_REGISTRY)/$(IMAGE_NAME):latest \
-		--tag $(GHCR_REGISTRY)/$(IMAGE_NAME):latest-$(shell git rev-parse --short HEAD) \
 		--push .
 
 docker-local-minimal:

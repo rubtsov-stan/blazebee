@@ -49,12 +49,6 @@ pub struct CollectorsConfig {
     ))]
     pub enabled: Vec<Collector>,
 
-    /// Interval (in seconds) at which collected data is refreshed in memory.
-    ///
-    /// Must be at least 1 second.
-    #[validate(range(min = 1, message = "Refresh interval must be at least 1 second"))]
-    pub refresh_interval: u64,
-
     /// Interval (in seconds) at which metrics are collected and published.
     ///
     /// Must be at least 1 second.
@@ -78,7 +72,6 @@ impl Default for CollectorsConfig {
 
         Self {
             enabled: default_collectors,
-            refresh_interval: 60,
             collection_interval: 5,
         }
     }

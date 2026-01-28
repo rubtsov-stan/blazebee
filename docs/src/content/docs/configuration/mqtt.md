@@ -1,8 +1,14 @@
-# BLAZEBEE MQTT-3 Manager
+---
+title: MQTT Configuration
+description: Set up MQTT transport for secure, reliable metrics publishing.
+---
 
-A production-ready async MQTT client for Rust with automatic reconnection, multiple serialization formats, and comprehensive error handling. Built on top of `rumqttc` to provide a higher-level, more ergonomic interface for MQTT operations.
+BlazeBee uses MQTT v3 for efficient, scalable data distribution, integrating smoothly with monitoring ecosystems for real-time visibility.
 
-## Features
+### Purpose of This Page
+Details transport settings. Use for MQTT tuning.
+
+### Features
 
 - **Automatic Reconnection** - Exponential backoff with configurable limits
 - **Connection State Monitoring** - Watch channel for real-time connection state updates
@@ -14,18 +20,6 @@ A production-ready async MQTT client for Rust with automatic reconnection, multi
 - **Async/Await** - Full tokio integration with non-blocking operations
 - **Subscription Persistence** - Automatic resubscription on reconnection
 
-## Quick Start
-
-### Basic Setup
-
-Add to your `Cargo.toml`:
-
-```toml
-[dependencies]
-blazebee-mqtt-v3 = "0.1"
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-```
 
 ### Minimal Example
 
@@ -72,13 +66,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Configuration
+### Configuration
 
 ### From TOML File
 
-Create `mqtt.toml`:
+Create `config.toml`:
 
 ```toml
+[transport]
+client_id = "your-client-id"
 base_topic = "my-app"
 host = "mqtt.example.com"
 port = 8883
@@ -86,12 +82,12 @@ clean_session = false
 keep_alive = 60
 max_inflight = 100
 
-[tls]
+[transport.tls]
 ca_cert_path = "/etc/mqtt/ca.pem"
 client_cert_path = "/etc/mqtt/client.crt"
 client_key_path = "/etc/mqtt/client.key"
 
-[serialization]
+[transport.serialization]
 format = "msgpack"
 compression = "zstd"
 compression_threshold = 1024
@@ -126,9 +122,9 @@ let config = Config {
 let manager = MqttManager::from_config(config)?;
 ```
 
-## Usage Patterns
+### Usage Patterns
 
-### Pattern 1: Monitoring Connection State
+#### Pattern 1: Monitoring Connection State
 
 ```rust
 use mqtt_manager::ConnectionState;
@@ -157,7 +153,7 @@ tokio::spawn(async move {
 });
 ```
 
-### Pattern 2: Publishing with Retry
+#### Pattern 2: Publishing with Retry
 
 ```rust
 // Simple publish with automatic retry on failure
@@ -182,7 +178,7 @@ async fn publish_with_retry(
 }
 ```
 
-### Pattern 3: Publisher Presets
+#### Pattern 3: Publisher Presets
 
 Choose a preset configuration optimized for your use case:
 
@@ -203,7 +199,7 @@ let publisher = mqtt_manager::publisher::presets::high_performance(instance);
 let publisher = mqtt_manager::publisher::presets::ultra_compact(instance);
 ```
 
-### Pattern 4: Custom Serialization
+#### Pattern 4: Custom Serialization
 
 ```rust
 use mqtt_manager::config::{SerializationConfig, SerializationFormat, CompressionType};
@@ -217,7 +213,7 @@ let config = SerializationConfig {
 let publisher = Publisher::with_config(instance, &config);
 ```
 
-## Architecture
+### Architecture
 
 The library follows a layered architecture:
 
@@ -245,7 +241,7 @@ MqttInstance (high-level API)
 - **Backoff** - Exponential backoff algorithm with configurable limits
 - **Framer** - Handles the message into frames
 
-## Error Handling
+### Error Handling
 
 The library uses a unified `TransferError` type that categorizes all failures:
 
@@ -281,7 +277,7 @@ match publisher.publish(&data, &metadata).await {
 }
 ```
 
-## QoS Guarantees
+### QoS Guarantees
 
 This library supports all three MQTT QoS levels:
 
@@ -293,7 +289,7 @@ This library supports all three MQTT QoS levels:
 
 **Note**: QoS is per-message, set in `EndpointMetadata`. For critical data, always use QoS 1+.
 
-## Connection Lifecycle
+### Connection Lifecycle
 
 The connection goes through these states:
 
@@ -309,13 +305,7 @@ Connecting ──(CONNACK)──> Connected
                         Connecting
 ```
 
-**Reconnection Strategy**:
-- Initial delay: Configurable (default 5s)
-- Growth: Exponential with multiplier (default 1x)
-- Maximum: 60 seconds (hard cap)
-- Attempts: Configurable, 0 = unlimited (recommended)
-
-## TLS/SSL Configuration
+### TLS/SSL Configuration
 
 ### CA-Only Verification (Most Common)
 
@@ -340,7 +330,7 @@ let tls = TlsConfig::new(
 - Rotate certificates before expiry
 - Use strong key sizes (2048+ bits for RSA)
 
-## Serialization Formats
+### Serialization Formats
 
 Choose based on your requirements:
 
@@ -354,7 +344,7 @@ Choose based on your requirements:
 - **Gzip**: Standard, good compatibility
 - **Zstd**: Faster, better ratio (recommended)
 
-## Performance
+### Performance
 
 Typical performance on modern hardware (Intel i7, 8GB RAM):
 
@@ -373,7 +363,7 @@ Typical performance on modern hardware (Intel i7, 8GB RAM):
 - Increase `request_channel_capacity` to buffer more locally
 - Use QoS 0 only for high-frequency, low-importance data
 
-## Thread Safety
+### Thread Safety
 
 All public types are safe for concurrent use:
 
@@ -399,23 +389,23 @@ for _ in 0..10 {
 }
 ```
 
-## Examples
+### Examples
 
 The repository includes several complete examples:
 
-- `01_basic_publish_subscribe.rs` - Simple pub/sub with state monitoring
-- `02_serialization_formats.rs` - Different serialization options
-- `03_basic_publish_framed_msg.rs` - Different serialization options with frame stream
+- `./crates/mqtt/v3/01_basic_publish_subscribe.rs` - Simple pub/sub with state monitoring
+- `./crates/mqtt/v3/02_serialization_formats.rs` - Different serialization options
+- `./crates/mqtt/v3/03_basic_publish_framed_msg.rs` - Different serialization options with frame stream
 
 Run examples:
 
 ```bash
-cargo run --example 01_basic_publish_subscribe
-cargo run --example 02_serialization_formats
-cargo run --example 03_basic_publish_framed_msg
+cargo run --example ./crates/mqtt/v3/01_basic_publish_subscribe
+cargo run --example ./crates/mqtt/v3/02_serialization_formats
+cargo run --example ./crates/mqtt/v3/03_basic_publish_framed_msg
 ```
 
-## Testing
+### Testing
 
 Run the test suite:
 
@@ -430,9 +420,9 @@ cargo test --all
 cargo test -- --nocapture
 ```
 
-## Troubleshooting
+#### Troubleshooting
 
-### Connection Refused
+#### Connection Refused
 
 ```
 Error: Connection refused (os error 111)
@@ -445,7 +435,7 @@ Error: Connection refused (os error 111)
 telnet localhost 1883
 ```
 
-### TLS Certificate Validation Failed
+#### TLS Certificate Validation Failed
 
 ```
 Error: TLS handshake failed
@@ -461,7 +451,7 @@ openssl x509 -in ca.pem -text -noout
 file ca.pem  # Should be: PEM certificate
 ```
 
-### Message Too Large
+#### Message Too Large
 
 ```
 Error: Serialization error: message too large
@@ -473,7 +463,7 @@ Error: Serialization error: message too large
 config.max_packet_size = Some(262144);  // 256KB
 ```
 
-### High CPU Usage
+#### High CPU Usage
 
 **Solution**: Enable compression, reduce publish rate, or profile with `perf`.
 
@@ -485,7 +475,7 @@ let config = SerializationConfig {
 };
 ```
 
-### Memory Growth
+#### Memory Growth
 
 **Solution**: Check for message buffering or subscription memory leaks.
 
@@ -498,17 +488,17 @@ valgrind --leak-check=full ./target/debug/your_app
 ```
 
 
-## Acknowledgments
+### Acknowledgments
 
 Built on top of the excellent [rumqttc](https://github.com/bytebeamio/rumqttc) library, which provides the underlying MQTT protocol implementation.
 
-## Support
+### Support
 
 - **Examples**: See `/examples` directory
 
-## Changelog
+### Changelog
 
-### v0.1.0 (Initial Release)
+#### v0.1.0 (Initial Release)
 
 - Core MQTT functionality with automatic reconnection
 - Multiple serialization formats (JSON, MessagePack, CBOR)
@@ -518,7 +508,7 @@ Built on top of the excellent [rumqttc](https://github.com/bytebeamio/rumqttc) l
 - Connection state monitoring
 - Configuration management with TOML support
 
-## Roadmap
+#### Roadmap
 
 Planned for future releases:
 
