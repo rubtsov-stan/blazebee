@@ -10,8 +10,8 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.29.0",
-    "astro": "^4.15.0"
+    "astro": "^5.5.0",
+    "@astrojs/starlight": "^0.37.4"
   },
   "devDependencies": {
     "@types/node": "^20.0.0"
