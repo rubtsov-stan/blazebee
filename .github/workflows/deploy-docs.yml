@@ -23,11 +23,12 @@ jobs:
         id: cache-npm
         uses: actions/cache@v4
         with:
-          path: ~/.npm  
+          path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
           restore-keys: ${{ runner.os }}-npm-
 
       - name: Install dependencies
+        working-directory: docs
         run: |
           if [ -f package.json ]; then
             if [ -f package-lock.json ]; then
@@ -37,8 +38,9 @@ jobs:
             fi
           else
             echo "Error: package.json not found. Cannot install dependencies."
-            exit 1  # Fail the job if package.json is missing
+            exit 1
           fi
 
       - name: Build project
+        working-directory: docs  # Run in /docs
         run: npm run build
