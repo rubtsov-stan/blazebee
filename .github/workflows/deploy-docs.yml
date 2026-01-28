@@ -34,7 +34,7 @@ jobs:
             if [ -f package-lock.json ]; then
               npm ci
             else
-              npm install
+              npm install --legacy-peer-deps
             fi
           else
             echo "Error: package.json not found. Cannot install dependencies."
@@ -42,5 +42,5 @@ jobs:
           fi
 
       - name: Build project
-        working-directory: docs  # Run in /docs
+        working-directory: docs
         run: npm run build
