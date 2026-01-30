@@ -101,7 +101,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/blazebee
+ExecStart=/usr/bin/blazebee
 Environment="RUST_LOG=info"
 Environment="RUST_BACKTRACE=1"
 Environment="BLAZEBEE_CONFIG=/etc/blazebee/config.toml"

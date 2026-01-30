@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/blazebee
+ExecStart=/usr/bin/blazebee
 Environment="RUST_LOG=info"
 Environment="RUST_BACKTRACE=1"
 Environment="BLAZEBEE_CONFIG=/etc/blazebee/config.toml"
@@ -30,11 +30,9 @@ RestrictRealtime=true
 WorkingDirectory=/var/lib/blazebee
 ReadWritePaths=/var/lib/blazebee
 ReadOnlyPaths=/etc/blazebee/config.toml
-
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=blazebee
-
 LimitNOFILE=65535
 LimitNPROC=512
 TimeoutStartSec=30
