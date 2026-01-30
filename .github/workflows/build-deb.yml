@@ -1,9 +1,12 @@
-name: Build Debian Packages
+name: Build & Release Debian Packages
 
 on:
   push:
     tags:
       - v*
+
+permissions:
+  contents: write
 
 jobs:
   build-deb:
@@ -66,8 +69,28 @@ jobs:
             --target ${{ matrix.arch.target }} \
             --variant ${{ matrix.variant.name }}
 
-      - name: Upload deb
+      - name: Upload deb artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: blazebee-deb-${{ matrix.variant.name }}-${{ matrix.arch.name }}
+          name: deb-${{ matrix.variant.name }}-${{ matrix.arch.name }}
           path: target/debian/*.deb
+
+  release:
+    needs: build-deb
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all deb artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: deb-artifacts
+
+      - name: Show deb files
+        run: ls -R deb-artifacts
+
+      - name: Create GitHub Release and upload deb
+        uses: softprops/action-gh-release@v1
+        with:
+          files: deb-artifacts/**/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
