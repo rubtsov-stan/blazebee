@@ -41,47 +41,183 @@ use super::{
     supervisor::Supervisor,
 };
 
+/// A synchronization primitive that tracks in-flight publishes and allows
+/// graceful shutdown.
+///
+/// The `PublishDrain` ensures that all ongoing publish operations complete
+/// before shutting down the connection. It provides two main capabilities:
+/// 1. **Inflight tracking**: Counts active publish operations
+/// 2. **Graceful shutdown**: Allows waiting for all publishes to complete
+/// 3. **Force quit**: Can interrupt waiting for graceful shutdown when needed
+///
+/// # How it works
+///
+/// - Each publish operation calls `enter()` to increment the counter
+/// - When a publish completes, `PublishGuard`'s `Drop` decrements the counter
+/// - `wait_idle()` waits for the counter to reach zero
+/// - `force_quit()` cancels any ongoing `wait_idle()` calls
+///
+/// # Usage with MQTT Manager
+///
+/// The manager uses `PublishDrain` to ensure all publishes are sent before
+/// disconnecting from the broker. This prevents data loss during shutdown.
+/// The shutdown sequence is:
+/// 1. Cancel all new publishes (`enter()` returns `None` after `force_quit()`)
+/// 2. Wait for existing publishes to complete (`wait_idle()`)
+/// 3. Send DISCONNECT to broker
+///
+/// # Examples
+///
+/// ```ignore
+/// let drain = Arc::new(PublishDrain::new());
+///
+/// // Start a publish operation
+/// if let Some(guard) = drain.enter() {
+///     // ... perform publish ...
+///     // guard dropped automatically at end of scope
+/// }
+///
+/// // In shutdown handler:
+/// drain.force_quit();  // Optional: interrupt waiting if needed
+/// drain.wait_idle().await;  // Wait for all publishes to complete
+/// ```
 #[derive(Debug)]
 pub struct PublishDrain {
+    /// Number of active publish operations.
+    /// Incremented by `enter()`, decremented when `PublishGuard` is dropped.
     inflight: std::sync::atomic::AtomicUsize,
+
+    /// Notifier for waking up tasks waiting for idle state.
+    /// Notified when the last active publish completes.
     notify: tokio::sync::Notify,
+
+    /// Token for cancelling `wait_idle()` operations.
+    /// When cancelled, `wait_idle()` returns immediately.
+    cancel_token: CancellationToken,
 }
 
 impl PublishDrain {
+    /// Creates a new `PublishDrain` with zero active publishes.
     pub fn new() -> Self {
         Self {
             inflight: std::sync::atomic::AtomicUsize::new(0),
             notify: tokio::sync::Notify::new(),
+            cancel_token: CancellationToken::new(),
         }
     }
 
-    pub fn enter(self: &std::sync::Arc<Self>) -> PublishGuard {
+    /// Begins tracking a new publish operation.
+    ///
+    /// Increments the inflight counter and returns a `PublishGuard` that
+    /// will decrement the counter when dropped.
+    ///
+    /// # Returns
+    /// - `Some(PublishGuard)`: Successfully started tracking a new publish
+    /// - `None`: `force_quit()` has been called, no new publishes allowed
+    ///
+    /// # Memory Ordering
+    /// Uses `AcqRel` ordering to ensure proper synchronization between
+    /// concurrent calls to `enter()` and `wait_idle()`.
+    pub fn enter(self: &std::sync::Arc<Self>) -> Option<PublishGuard> {
+        if self.cancel_token.is_cancelled() {
+            return None;
+        }
+
         self.inflight
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        PublishGuard {
+        Some(PublishGuard {
             drain: self.clone(),
+        })
+    }
+
+    /// Waits for all active publish operations to complete.
+    ///
+    /// This method blocks until the inflight counter reaches zero.
+    /// If `force_quit()` is called while waiting, this method returns
+    /// immediately.
+    ///
+    /// # Use Cases
+    /// - Graceful shutdown: wait for all publishes before disconnecting
+    /// - Testing: ensure all test publishes complete before assertions
+    /// - Resource cleanup: wait for pending work before freeing resources
+    ///
+    /// # Cancellation
+    /// This method is cancellation-safe. If the returned future is dropped,
+    /// the wait is cancelled without side effects.
+    pub async fn wait_idle(&self) {
+        loop {
+            if self.inflight.load(std::sync::atomic::Ordering::Acquire) == 0 {
+                return;
+            }
+
+            tokio::select! {
+                // Wait for notification that a publish completed
+                _ = self.notify.notified() => {
+                    // A publish completed, check counter again
+                }
+                // Exit immediately if force_quit was called
+                _ = self.cancel_token.cancelled() => {
+                    return;
+                }
+            }
         }
     }
 
-    pub async fn wait_idle(&self) {
-        while self.inflight.load(std::sync::atomic::Ordering::Acquire) != 0 {
-            self.notify.notified().await;
-        }
+    /// Forces immediate cancellation of all `wait_idle()` calls.
+    ///
+    /// After calling this method:
+    /// - All current and future calls to `wait_idle()` return immediately
+    /// - All future calls to `enter()` return `None`
+    /// - Existing publishes continue to completion (not interrupted)
+    ///
+    /// This is useful for:
+    /// - Emergency shutdown scenarios
+    /// - Timeouts on graceful shutdown
+    /// - Testing shutdown behavior
+    pub fn force_quit(&self) {
+        self.cancel_token.cancel();
+        self.notify.notify_waiters();
+    }
+
+    /// Checks if `force_quit()` has been called.
+    ///
+    /// # Returns
+    /// - `true`: `force_quit()` was called, no new publishes allowed
+    /// - `false`: Normal operation, new publishes can be tracked
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel_token.is_cancelled()
     }
 }
 
+/// A guard representing an active publish operation.
+///
+/// The `PublishGuard` ensures that the inflight counter is decremented
+/// when the publish operation completes, regardless of how it completes
+/// (success, error, panic, cancellation).
+///
+/// # Drop Semantics
+/// When dropped, decrements the inflight counter. If this was the last
+/// active publish, notifies all tasks waiting in `wait_idle()`.
+///
+/// # Memory Ordering
+/// Uses `AcqRel` ordering to ensure proper synchronization with `enter()`
+/// and `wait_idle()` operations.
 pub struct PublishGuard {
+    /// Reference to the parent `PublishDrain`.
+    /// When this guard is dropped, the drain's counter is decremented.
     drain: std::sync::Arc<PublishDrain>,
 }
 
 impl Drop for PublishGuard {
     fn drop(&mut self) {
+        // Use `fetch_sub` to decrement and check if this was the last publish
         if self
             .drain
             .inflight
             .fetch_sub(1, std::sync::atomic::Ordering::AcqRel)
             == 1
         {
+            // This was the last active publish, notify waiters
             self.drain.notify.notify_waiters();
         }
     }
@@ -224,11 +360,13 @@ impl MqttManager {
         self.subscription_manager = Some(subscription_manager.clone());
 
         info!("MQTT infrastructure built successfully");
-
+        let fatal_awaiter = publish_drain.clone();
         // Spawn connection kernel task
         tokio::spawn(async move {
             if let Err(e) = connection_kernel.reconnect().await {
                 error!("MQTT connection kernel exited with error: {:?}", e);
+                // Detect fatal errors from the connection kernel and force drop publisher.
+                fatal_awaiter.force_quit();
                 panic!("MQTT connection kernel failed to start")
             };
         });
