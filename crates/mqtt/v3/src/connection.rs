@@ -45,7 +45,9 @@ use std::{
     time::Duration,
 };
 
-use rumqttc::{AsyncClient, ConnectReturnCode, ConnectionError, Event, EventLoop, Packet};
+use rumqttc::{
+    AsyncClient, ConnectReturnCode, ConnectionError, Event, EventLoop, Packet, StateError,
+};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};
@@ -306,10 +308,13 @@ impl ConnectionKernel {
                             if is_fatal_error(&e) {
                                 error!("Fatal error encountered, shutting down driver");
                                 debug!("Fatal error encountered, shutting down driver, error: {e}");
-                                self.update_state(ConnectionState::Disconnected(e.to_string())).await;
+                                self.is_connected.store(false, Ordering::Release);
+                                self.update_state(ConnectionState::FatalExit(e.to_string())).await;
                                 return Err(TransferError::from(e));
                             }
-
+                            debug!("Non-fatal connection error: {:?}", e);
+                            self.is_connected.store(false, Ordering::Release);
+                            self.update_state(ConnectionState::Disconnected(get_error_message(&e))).await;
                             // Transient error—apply backoff and retry
                             match self.next_retry_delay().await {
                                 Ok(sleep_duration) => {
@@ -429,6 +434,70 @@ enum Disposition {
     Reconnect,
 }
 
+/// Classifies `StateError` instances as either fatal or recoverable.
+///
+/// This classification determines whether the connection should be
+/// reestablished (recoverable) or permanently terminated (fatal).
+///
+/// # Philosophy
+///
+/// Errors are classified based on their root cause:
+/// - **Fatal**: Bugs, invalid state, programmer errors, or protocol violations
+///   that cannot be resolved by reconnecting
+/// - **Recoverable**: Network issues, timeouts, or transient conditions
+///   that might resolve with a fresh connection
+///
+/// When in doubt, prefer `Reconnect` to avoid unnecessary hard failures
+/// that could be resolved by simply reestablishing the connection.
+fn classify_state_error(err: &StateError) -> Disposition {
+    use Disposition::*;
+
+    match err {
+        // =================================================
+        // Transport / Transient errors (recoverable)
+        // =================================================
+
+        // I/O errors are usually transient network issues
+        StateError::Io(_) => Reconnect,
+
+        // Connection was aborted by peer or network
+        StateError::ConnectionAborted => Reconnect,
+
+        // Ping timeout - broker is unresponsive but might come back
+        StateError::AwaitPingResp => Reconnect,
+
+        // Packet collision - timing issue that resolves on retry
+        StateError::CollisionTimeout => Reconnect,
+
+        // Unexpected packet - could be broker bug or race condition
+        StateError::Unsolicited(_) => Reconnect,
+
+        // Malformed packet - might be transient corruption
+        StateError::WrongPacket => Reconnect,
+
+        // Deserialization failure - could be corrupted data in transit
+        StateError::Deserialization(_) => Reconnect,
+
+        // =================================================
+        // Logic / Programmer errors (fatal)
+        // =================================================
+
+        // Invalid internal state - indicates a bug in the state machine
+        StateError::InvalidState => Fatal,
+
+        // Empty subscription list - programming error or invalid usage
+        StateError::EmptySubscription => Fatal,
+
+        // =================================================
+        // Safety net for new error variants
+        // =================================================
+        #[allow(unreachable_patterns)]
+        // Default to reconnect for any newly added error types
+        // to avoid hard failures from unexpected conditions
+        _ => Reconnect,
+    }
+}
+
 fn classify_connection_error(err: &ConnectionError) -> Disposition {
     use Disposition::*;
 
@@ -442,7 +511,7 @@ fn classify_connection_error(err: &ConnectionError) -> Disposition {
         ConnectionError::Tls(_) => Fatal,
 
         // Internal MQTT state corruption or protocol violation
-        ConnectionError::MqttState(_) => Fatal,
+        ConnectionError::MqttState(se) => classify_state_error(se),
 
         // Broker responded with something other than CONNACK
         // This indicates a protocol-level failure

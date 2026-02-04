@@ -12,6 +12,12 @@
 //! let state = ConnectionState::Reconnecting(5.0);
 //! println!("Status: {}", state);  // "Reconnecting (in 5 seconds)"
 //! println!("Type: {}", state.as_str());  // "Reconnecting"
+//!
+//! // Monitor for fatal errors
+//! if let ConnectionState::FatalExit(reason) = &state {
+//!     eprintln!("Connection cannot recover: {}", reason);
+//!     // Application should decide whether to restart or exit
+//! }
 //! ```
 
 use std::fmt;
@@ -22,6 +28,7 @@ use std::fmt;
 /// - `Connecting` -> `Connected` (successful handshake)
 /// - `Connected` -> `Disconnected` (broker closed, network error, etc.)
 /// - `Disconnected` -> `Reconnecting` -> `Connecting` -> ... (exponential backoff retry loop)
+/// - `Disconnected` -> `FatalExit` (non-recoverable error, requires manual intervention)
 ///
 /// State transitions are driven by the connection kernel, which monitors the underlying
 /// MQTT event loop. Application code should subscribe to state changes via watch channels
@@ -45,9 +52,10 @@ pub enum ConnectionState {
     /// The `String` field contains the reason for disconnection, which may be:
     /// - A broker-initiated disconnect (e.g., "Disconnected by broker")
     /// - A network error (e.g., "Connection refused")
-    /// - A timeout or other fatal condition
+    /// - A timeout or other condition
     ///
-    /// The client will automatically attempt to reconnect per the configured backoff policy.
+    /// The client will automatically attempt to reconnect per the configured backoff policy,
+    /// unless the error is classified as fatal (in which case transitions to `FatalExit`).
     Disconnected(String),
 
     /// Waiting before the next reconnection attempt (exponential backoff).
@@ -62,6 +70,47 @@ pub enum ConnectionState {
     /// The delay increases exponentially with each attempt up to a configured maximum.
     /// For example: 1s -> 1.1s -> 1.21s -> ... -> 60s (default cap).
     Reconnecting(f64),
+
+    /// A non-recoverable error has occurred; automatic reconnection will not be attempted.
+    ///
+    /// This state indicates a fundamental issue that cannot be resolved by simply
+    /// reestablishing the connection. The `String` field contains detailed diagnostic
+    /// information about what went wrong.
+    ///
+    /// # Causes
+    ///
+    /// Typical reasons for entering `FatalExit` state include:
+    /// - **TLS/SSL errors**: Invalid certificates, expired credentials, or incompatible
+    ///   cipher suites
+    /// - **Authentication failures**: Invalid username/password that won't succeed on retry
+    /// - **Protocol violations**: Broker responded in an unexpected, irrecoverable way
+    /// - **Configuration errors**: Client ID conflicts, unsupported protocol versions, etc.
+    /// - **System resource exhaustion**: File descriptors, memory, or other OS limits
+    ///
+    /// # Application Response
+    ///
+    /// When the connection enters `FatalExit` state, applications should:
+    /// 1. **Log the error** with full details for diagnostics
+    /// 2. **Stop publishing** new messages (they will fail)
+    /// 3. **Decide on recovery strategy**:
+    ///    - Restart the entire connection with corrected configuration
+    ///    - Notify users/admin of the problem
+    ///    - Switch to a backup/fallback system
+    ///    - Gracefully shut down the application
+    ///
+    /// # Example Errors
+    ///
+    /// ```ignore
+    /// ConnectionState::FatalExit("TLS handshake failed: certificate expired".into())
+    /// ConnectionState::FatalExit("Authentication rejected: invalid credentials".into())
+    /// ConnectionState::FatalExit("Protocol violation: broker sent malformed packet".into())
+    /// ```
+    ///
+    /// # Note
+    /// This state is terminal for the current connection instance. To recover,
+    /// applications must create a new `MqttManager` or restart the connection
+    /// with corrected parameters.
+    FatalExit(String),
 }
 
 impl ConnectionState {
@@ -71,12 +120,13 @@ impl ConnectionState {
     /// isn't needed. The returned string is always a static lifetime (no allocations).
     ///
     /// # Returns
-    /// One of: `"Connecting"`, `"Connected"`, `"Disconnected"`, `"Reconnecting"`
+    /// One of: `"Connecting"`, `"Connected"`, `"Disconnected"`, `"Reconnecting"`, `"FatalExit"`
     ///
     /// # Examples
     /// ```ignore
     /// assert_eq!(ConnectionState::Connected.as_str(), "Connected");
     /// assert_eq!(ConnectionState::Disconnected("error".into()).as_str(), "Disconnected");
+    /// assert_eq!(ConnectionState::FatalExit("tls error".into()).as_str(), "FatalExit");
     /// ```
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -84,6 +134,7 @@ impl ConnectionState {
             ConnectionState::Connected => "Connected",
             ConnectionState::Disconnected(_) => "Disconnected",
             ConnectionState::Reconnecting(_) => "Reconnecting",
+            ConnectionState::FatalExit(_) => "FatalExit",
         }
     }
 
@@ -92,6 +143,7 @@ impl ConnectionState {
     /// For `Connecting` and `Connected`, this returns an empty string.
     /// For `Disconnected`, it returns the disconnection reason.
     /// For `Reconnecting`, it returns the delay until next attempt.
+    /// For `FatalExit`, it returns the detailed error description.
     ///
     /// # Examples
     /// ```ignore
@@ -100,6 +152,9 @@ impl ConnectionState {
     ///
     /// let state = ConnectionState::Disconnected("Connection timeout".into());
     /// assert_eq!(state.details(), "Connection timeout");
+    ///
+    /// let state = ConnectionState::FatalExit("TLS certificate expired".into());
+    /// assert_eq!(state.details(), "TLS certificate expired");
     /// ```
     pub fn details(&self) -> String {
         match self {
@@ -107,6 +162,7 @@ impl ConnectionState {
             ConnectionState::Connected => String::new(),
             ConnectionState::Disconnected(reason) => reason.clone(),
             ConnectionState::Reconnecting(seconds) => format!("in {seconds} seconds"),
+            ConnectionState::FatalExit(reason) => reason.clone(),
         }
     }
 
@@ -128,6 +184,48 @@ impl ConnectionState {
             ConnectionState::Connecting | ConnectionState::Reconnecting(_)
         )
     }
+
+    /// Checks if the connection has encountered a fatal, non-recoverable error.
+    ///
+    /// Returns true only for `FatalExit` state. This indicates that automatic
+    /// reconnection will not be attempted and manual intervention is required.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// let state = ConnectionState::FatalExit("Invalid credentials".into());
+    /// assert!(state.is_fatal());
+    ///
+    /// let state = ConnectionState::Disconnected("Network timeout".into());
+    /// assert!(!state.is_fatal()); // Will not attempt to reconnect
+    /// ```
+    pub fn is_fatal(&self) -> bool {
+        matches!(self, ConnectionState::FatalExit(_))
+    }
+
+    /// Checks if the connection can potentially become active again.
+    ///
+    /// Returns true for states that can transition to `Connected` through
+    /// normal operation or automatic reconnection.
+    ///
+    /// # Returns
+    /// - `true`: `Connecting`, `Reconnecting`, `Disconnected` (non-fatal)
+    /// - `false`: `Connected`, `FatalExit`
+    ///
+    /// # Examples
+    /// ```ignore
+    /// assert!(ConnectionState::Reconnecting(2.0).is_recoverable());
+    /// assert!(ConnectionState::Disconnected("timeout".into()).is_recoverable());
+    /// assert!(!ConnectionState::FatalExit("bad cert".into()).is_recoverable());
+    /// assert!(!ConnectionState::Connected.is_recoverable()); // Already connected
+    /// ```
+    pub fn is_recoverable(&self) -> bool {
+        matches!(
+            self,
+            ConnectionState::Connecting
+                | ConnectionState::Reconnecting(_)
+                | ConnectionState::Disconnected(_)
+        )
+    }
 }
 
 impl fmt::Display for ConnectionState {
@@ -138,6 +236,7 @@ impl fmt::Display for ConnectionState {
     /// println!("{}", ConnectionState::Connected);  // "Connected"
     /// println!("{}", ConnectionState::Reconnecting(2.5));  // "Reconnecting (in 2.5 seconds)"
     /// println!("{}", ConnectionState::Disconnected("timeout".into()));  // "Disconnected (timeout)"
+    /// println!("{}", ConnectionState::FatalExit("TLS error".into()));  // "FatalExit (TLS error)"
     /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())?;
@@ -162,6 +261,10 @@ mod tests {
             "Disconnected"
         );
         assert_eq!(ConnectionState::Reconnecting(1.0).as_str(), "Reconnecting");
+        assert_eq!(
+            ConnectionState::FatalExit("error".into()).as_str(),
+            "FatalExit"
+        );
     }
 
     #[test]
@@ -176,6 +279,10 @@ mod tests {
             ConnectionState::Reconnecting(3.5).details(),
             "in 3.5 seconds"
         );
+        assert_eq!(
+            ConnectionState::FatalExit("TLS handshake failed".into()).details(),
+            "TLS handshake failed"
+        );
     }
 
     #[test]
@@ -189,6 +296,10 @@ mod tests {
             ConnectionState::Disconnected("broker closed".into()).to_string(),
             "Disconnected (broker closed)"
         );
+        assert_eq!(
+            ConnectionState::FatalExit("certificate expired".into()).to_string(),
+            "FatalExit (certificate expired)"
+        );
     }
 
     #[test]
@@ -197,6 +308,7 @@ mod tests {
         assert!(!ConnectionState::Connecting.is_connected());
         assert!(!ConnectionState::Disconnected("error".into()).is_connected());
         assert!(!ConnectionState::Reconnecting(1.0).is_connected());
+        assert!(!ConnectionState::FatalExit("error".into()).is_connected());
     }
 
     #[test]
@@ -205,5 +317,24 @@ mod tests {
         assert!(ConnectionState::Reconnecting(1.0).is_connecting());
         assert!(!ConnectionState::Connected.is_connecting());
         assert!(!ConnectionState::Disconnected("error".into()).is_connecting());
+        assert!(!ConnectionState::FatalExit("error".into()).is_connecting());
+    }
+
+    #[test]
+    fn test_is_fatal() {
+        assert!(ConnectionState::FatalExit("error".into()).is_fatal());
+        assert!(!ConnectionState::Connected.is_fatal());
+        assert!(!ConnectionState::Disconnected("error".into()).is_fatal());
+        assert!(!ConnectionState::Reconnecting(1.0).is_fatal());
+        assert!(!ConnectionState::Connecting.is_fatal());
+    }
+
+    #[test]
+    fn test_is_recoverable() {
+        assert!(ConnectionState::Connecting.is_recoverable());
+        assert!(ConnectionState::Reconnecting(1.0).is_recoverable());
+        assert!(ConnectionState::Disconnected("error".into()).is_recoverable());
+        assert!(!ConnectionState::Connected.is_recoverable());
+        assert!(!ConnectionState::FatalExit("error".into()).is_recoverable());
     }
 }
