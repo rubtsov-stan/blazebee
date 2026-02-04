@@ -286,7 +286,7 @@ impl ConnectionKernel {
             tokio::select! {
                 // Shutdown requested
                 _ = self.cancel.cancelled() => {
-                    info!("Shutdown signal received, initiating graceful shutdown...");
+                    info!("Connection Kernel shutdown signal received, initiating graceful shutdown...");
                     self.is_connected.store(false, Ordering::Release);
 
                     self.disconnect().await?;

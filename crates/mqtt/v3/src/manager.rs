@@ -938,7 +938,6 @@ impl MqttInstance {
     /// println!("MQTT disconnected");
     /// ```
     pub async fn shutdown(&self) -> Result<(), TransferError> {
-        self.client.disconnect().await?;
         // request shutdown for the rest of the system
         self.cancel_token.cancel();
         // wait for all in-flight publishes (including framed streams)
