@@ -143,7 +143,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         print_config_toml(cfg);
     });
     info!("Log level: {}", cfg.logger.level);
-
     let enabled_names = cfg.metrics.collectors.enabled_names();
     let available_list = Collectors::list();
     let enabled_refs: Vec<&str> = enabled_names.iter().map(|s| s.as_ref()).collect();
@@ -272,7 +271,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             #[cfg(feature = "blazebee-mqtt-v3")]
             {
-                instance.cancel_token().cancel();
+                instance.shutdown().await.unwrap_or_else(|e| {
+                    error!("Error during MQTT shutdown: {}", e);
+                    process::exit(1);
+                });
                 debug!("Cancellation token triggered — MQTT disconnecting...");
                 tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
             }

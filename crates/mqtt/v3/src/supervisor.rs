@@ -96,10 +96,7 @@ impl Supervisor {
         info!("Disconnected from MQTT broker");
 
         // Try to disconnect cleanly
-        if let Err(e) = self.client.disconnect().await {
-            warn!("Clean disconnect failed: {}", e);
-        }
-
+        self.client.disconnect().await?;
         Ok(())
     }
 
@@ -160,7 +157,7 @@ impl Supervisor {
                 // Check for shutdown request
                 _ = cancel.cancelled() => {
                     info!("Supervisor shutting down due to cancellation");
-                    if let Err(e) = self.on_disconnect().await {
+                    if let Err(e) = self.shutdown().await {
                         warn!("Error during shutdown disconnect: {:?}", e);
                     }
                     break;
@@ -208,5 +205,10 @@ impl Supervisor {
     /// Gets the cancellation token.
     pub fn cancel_token(&self) -> CancellationToken {
         self.cancel_token.clone()
+    }
+    /// Initiates a graceful shutdown of the supervisor.
+    pub async fn shutdown(&self) -> Result<(), TransferError> {
+        self.on_disconnect().await?;
+        Ok(())
     }
 }
