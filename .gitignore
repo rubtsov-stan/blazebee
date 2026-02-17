@@ -7,7 +7,7 @@ _site/
 # Temporary files
 *.tmp
 *.temp
-
+*.meta
 # Environment files
 .env
 .env.local
