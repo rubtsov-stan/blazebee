@@ -8,9 +8,12 @@ use std::sync::Arc;
 
 use erased_serde::Serialize;
 use tokio::time::{sleep, Duration, Instant};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 
-use super::{collectors::registry::Collectors, readiness::Readiness};
+use super::{
+    collectors::registry::Collectors,
+    readiness::{Readiness, ReadinessState},
+};
 use crate::config::metrics::{CollectorMetadata, MetricsConfig};
 
 /// Trait for publishers that can send metric data to an external system.
@@ -53,29 +56,37 @@ impl Executor {
     /// Runs the executor loop indefinitely.
     ///
     /// Waits for system readiness, then collects and publishes metrics
-    /// at the configured interval.
-    pub async fn run(self) -> ! {
+    /// at the configured interval. If the system enters `FatalExit` state,
+    /// the executor will stop gracefully.
+    pub async fn run(self) {
         // Wait for readiness before starting collection
         {
             let mut rx = self.readiness.subscribe();
-            if rx.borrow().is_ready() {
-                info!("System is already ready — starting metrics collection");
-            } else {
-                warn!("Waiting for system readiness... Current: {}", *rx.borrow());
-                loop {
-                    tokio::select! {
-                        _ = rx.changed() => {
-                            let state = rx.borrow().clone();
-                            if state.is_ready() {
+            info!("Waiting for system readiness... Current: {}", *rx.borrow());
+
+            loop {
+                tokio::select! {
+                    _ = rx.changed() => {
+                        let state = rx.borrow().clone();
+                        match &state {
+                            ReadinessState::Ready => {
                                 info!("System is READY! Starting metrics collection");
                                 break;
-                            } else {
-                                warn!("Still not ready: {}", state);
+                            }
+                            ReadinessState::FatalExit(reason) => {
+                                error!("System cannot recover: {}", reason);
+                                info!("Metrics collection terminated due to fatal error");
+                                return; // Exit gracefully on fatal error
+                            }
+                            _ => {
+                                info!("Still not ready: {}", state);
+                                // Continue waiting
                             }
                         }
-                        _ = sleep(Duration::from_secs(30)) => {
-                            warn!("Still waiting for readiness... Current: {}", *rx.borrow());
-                        }
+                    }
+                    _ = sleep(Duration::from_secs(30)) => {
+                        let state = rx.borrow().clone();
+                        info!("Still waiting for readiness... Current: {}", state);
                     }
                 }
             }
@@ -87,8 +98,22 @@ impl Executor {
             self.config.collectors.collection_interval
         );
 
+        // Subscribe to readiness changes during operation
+        let mut readiness_rx = self.readiness.subscribe();
+
         loop {
             let start = Instant::now();
+
+            // Check for fatal exit before starting collection
+            if readiness_rx.borrow().is_fatal() {
+                let reason = match &*readiness_rx.borrow() {
+                    ReadinessState::FatalExit(r) => r.clone(),
+                    _ => String::new(),
+                };
+                error!("System entered fatal state during collection: {}", reason);
+                info!("Stopping metrics collection due to fatal error");
+                break;
+            }
 
             // Spawn tasks for each enabled collector
             let tasks: Vec<_> = self
@@ -101,7 +126,14 @@ impl Executor {
                     let publisher = self.publisher.clone();
                     let name = col.name.clone();
                     let meta = col.metadata.clone();
+                    let readiness_check = self.readiness.clone();
+
                     tokio::spawn(async move {
+                        if readiness_check.current_state().is_fatal() {
+                            debug!("Skipping collector '{}' due to fatal state", name);
+                            return;
+                        }
+
                         let collector = match Collectors::get(&name) {
                             Ok(c) => c,
                             Err(e) => {
@@ -109,6 +141,11 @@ impl Executor {
                                 return;
                             }
                         };
+
+                        if readiness_check.current_state().is_fatal() {
+                            debug!("Skipping collector '{}' due to fatal state", name);
+                            return;
+                        }
 
                         let data = match collector.produce_dyn().await {
                             Ok(d) => d,
@@ -119,8 +156,11 @@ impl Executor {
                         };
 
                         log_memory_stats().await;
-
                         debug!("Collected data from '{}'", name);
+                        if readiness_check.current_state().is_fatal() {
+                            debug!("Skipping publish for '{}' due to fatal state", name);
+                            return;
+                        }
 
                         if let Err(e) = publisher.publish(&*data, &meta).await {
                             error!("Publish failed for '{}': {:?}", name, e);
@@ -135,10 +175,30 @@ impl Executor {
             }
 
             let elapsed = start.elapsed();
-            if elapsed < interval {
-                sleep(interval - elapsed).await;
+
+            // Wait for next interval or fatal exit
+            let sleep_future = sleep(interval.saturating_sub(elapsed));
+            tokio::select! {
+                _ = sleep_future => {
+                    // Normal interval sleep completed
+                }
+                _ = readiness_rx.changed() => {
+                    let state = readiness_rx.borrow().clone();
+                    if state.is_fatal() {
+                        let reason = match &state {
+                            ReadinessState::FatalExit(r) => r.clone(),
+                            _ => String::new(),
+                        };
+                        error!("Fatal state detected during sleep: {}", reason);
+                        break;
+                    }
+                    // If state changed but not fatal, continue with next iteration
+                    info!("Readiness state changed during sleep: {}", state);
+                }
             }
         }
+
+        info!("Metrics collection stopped gracefully");
     }
 }
 
