@@ -42,7 +42,7 @@ BlazeBee is a next-generation system metrics collector designed for the modern i
 ### Build from Source
 
 ```bash
-git clone  https://rubtsov-stan.github.io/blazebee/blazebee.git
+git clone  [https://rubtsov-stan.github.io/blazebee/blazebee.git](https://github.com/rubtsov-stan/blazebee)
 cd blazebee
 make docker TYPE=standard
 ```
