@@ -2,52 +2,29 @@
 name = "blazebee-mqtt-v3"
 version.workspace = true
 edition.workspace = true
-description = "MQTT v3 transport implementation for BlazeBee metrics collector"
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-readme = "../../../README.md"
-keywords = ["mqtt", "blazebee", "metrics"]
-categories = ["network-programming"]
-
-[package.metadata.release]
-tag-name = "v{{version}}"
-sign-tag = false
-push = false
+description = "MQTT 3.1.1 transport for the BlazeBee metrics collector"
+readme = "README.md"
 publish = false
 
 [dependencies]
-rumqttc = "0.25.0"
-tokio = { version = "1", features = ["full"] }
-tokio-util = "0.7"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-rmp-serde = "1.3.0"
-serde_cbor = "0.11.2"
-thiserror = "1"
-async-trait = "0.1"
-
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-bytes = "1"
-uuid = { version = "1", features = ["v4", "serde"] }
-rustls = { version = "0.21", optional = true }
-rustls-pemfile = { version = "2", optional = true }
-validator = { version = "0.18.1", features = ["derive"] }
-async-compression = { version = "0.4.34", features = ["gzip", "tokio", "zstd"] }
-async-stream = "0.3.6"
-futures-core = "0.3.31"
-futures-util = "0.3.31"
+ciborium = "0.2"
+flate2 = "1.0"
+rmp-serde = "1.3"
+rumqttc = "0.25"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+tracing = { workspace = true }
+zstd = "0.13"
 
 [dev-dependencies]
+flume = { version = "0.11", default-features = false }
 tempfile = "3"
-tokio-test = "0.4"
-
-[features]
-default = ["tls"]
-tls = ["rustls", "rustls-pemfile"]
-
-[lib]
-name = "blazebee_mqtt_v3"
-path = "src/lib.rs"
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi", "std"] }

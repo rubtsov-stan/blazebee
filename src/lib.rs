@@ -1,32 +1,14 @@
-//! blazebee — lightweight system metrics collector and MQTT publisher
+//! BlazeBee: a Linux system metrics collector that publishes to MQTT.
 //!
-//! This crate provides a modular, efficient monitoring agent that collects
-//! Linux system metrics from `/proc` and `/sys` filesystems and publishes them
-//! via MQTT. It is designed for long-running operation with minimal resource
-//! consumption, graceful shutdown support, and configurable logging.
+//! * [`config`] loads and validates the TOML configuration.
+//! * [`core::collectors`] reads kernel interfaces (`/proc`, `/sys`) and turns
+//!   them into serializable samples; every collector is behind a Cargo feature.
+//! * [`core::scheduler`] samples all enabled collectors at a fixed interval
+//!   and publishes the results while the broker connection is up.
+//! * [`logger`] configures `tracing` output for the console and journald.
 //!
-//! ## Modules
-//!
-//! * `config` — Configuration structures, loading, validation, and defaults.
-//!   Supports TOML configuration files with validation via the `validator` crate.
-//!
-//! * `core` — Core runtime components:
-//!   - Metric collection executor
-//!   - Readiness state management
-//!   - Publisher abstraction
-//!   - Collector registry and traits
-//!
-//! * `logger` — Centralized logging initialization using `tracing`.
-//!   Supports console output in multiple formats (compact, pretty, JSON)
-//!   and optional systemd journald integration.
-//!
-//! ## Features
-//!
-//! * `balzebee-mqtt-v3` — Enables MQTT transport using the `blazebee_mqtt_v3` crate
-//!   (default: enabled).
-//!
-//! Additional conditional features control individual collectors and
-//! platform-specific functionality.
+//! The binary in `src/main.rs` wires these together on a single-threaded
+//! Tokio runtime.
 
 pub mod config;
 pub mod core;

@@ -1,487 +1,291 @@
-//! Message publishing with serialization, compression, and base_topic support.
-//!
-//! The `Publisher` provides a high-level interface for sending messages to MQTT topics.
-//! It handles:
-//! - Serialization (JSON, MessagePack, CBOR)
-//! - Compression (Gzip, Zstd)
-//! - Base topic prefix application
-//! - Error handling
-//! - Metadata validation
-//!
-//! # Base Topic Integration
-//!
-//! The publisher automatically applies the `base_topic` from the MqttInstance
-//! configuration to all publication topics. For example, with `base_topic = "myapp"`:
-//! - Topic "sensor/temperature" becomes "myapp/sensor/temperature"
-//! - Topic "/status" becomes "myapp/status"
-//!
-//! # Examples
-//!
-//! ```ignore
-//! use mqtt_manager::{Publisher, config::EndpointMetadata};
-//! use serde::Serialize;
-//!
-//! #[derive(Serialize)]
-//! struct Sensor { temperature: f32 }
-//!
-//! let publisher = Publisher::new(instance);
-//! let sensor = Sensor { temperature: 22.5 };
-//! let metadata = EndpointMetadata {
-//!     qos: 1,
-//!     topic: "sensors/living_room".into(),
-//!     retain: true,
-//! };
-//!
-//! ```
+//! Encodes values and hands them to the event loop without blocking.
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use bytes::Bytes;
-use futures_util::StreamExt;
-use rumqttc::QoS;
+use rumqttc::{AsyncClient, QoS};
 use serde::Serialize;
-use tracing::debug;
+use tracing::trace;
 
-use super::{
-    config::{CompressionType, EndpointMetadata, SerializationConfig, SerializationFormat},
-    framer::{FrameHeader, FrameParts, Framer},
-    manager::{MqttInstance, PublishDrain},
-    message::ConfigurableSerializationService,
-    TransferError,
+use crate::{
+    config::{Config, EndpointMetadata, SerializationFormat},
+    error::TransferError,
+    framer::{self, FRAME_HEADER_LEN},
+    serializer::Serializer,
 };
 
-/// High-level interface for publishing MQTT messages with base_topic support.
-///
-/// The publisher serializes data, applies optional compression, adds base_topic
-/// prefix, and sends to the broker. It can be cloned and shared across tasks
-/// (all fields are wrapped in Arc for thread-safety).
-#[derive(Clone)]
 pub struct Publisher {
-    /// Reference to the MQTT instance
-    instance: Arc<MqttInstance>,
-
-    /// Serialization and compression service
-    serialization: Arc<ConfigurableSerializationService>,
-
-    /// Base topic prefix (cached from instance)
+    client: AsyncClient,
     base_topic: String,
-
-    /// Optional framer (present only if enabled in config)
-    framer: Option<Framer>,
-
-    /// Publish drain barrier (delays connection shutdown until publishes complete)
-    publish_drain: Arc<PublishDrain>,
+    serializer: Serializer,
+    framing: bool,
+    max_packet_size: usize,
+    next_stream_id: AtomicU64,
+    /// Largest payload produced so far; sizes the encode buffer.
+    size_hint: AtomicUsize,
 }
 
 impl Publisher {
-    /// Creates a publisher with default serialization settings.
-    ///
-    /// Default: JSON format, Gzip compression, uses base_topic from instance.
-    ///
-    /// # Arguments
-    /// - `instance`: Reference to the active MQTT instance
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let publisher = Publisher::new(instance);
-    /// ```
-    pub fn new(instance: Arc<MqttInstance>) -> Self {
-        let base_topic = instance.base_topic().to_string();
-        Self::with_config(instance, &SerializationConfig::default(), &base_topic)
-    }
-
-    /// Creates a publisher with custom serialization configuration.
-    ///
-    /// # Arguments
-    /// - `instance`: Reference to the active MQTT instance
-    /// - `config`: Serialization and compression settings
-    /// - `base_topic`: Base topic prefix (usually from instance.config())
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let config = SerializationConfig {
-    ///     format: SerializationFormat::MessagePack,
-    ///     compression: CompressionType::Zstd,
-    ///     compression_threshold: 512,
-    /// };
-    /// let publisher = Publisher::with_config(instance, &config, "myapp");
-    /// ```
-    pub fn with_config(
-        instance: Arc<MqttInstance>,
-        config: &SerializationConfig,
-        base_topic: &str,
-    ) -> Self {
-        let serialization = Arc::new(ConfigurableSerializationService::new(config));
-        let publish_drain = instance.publish_drain();
-        let framer = if instance.framing_enabled() {
-            Some(Framer::new(instance.max_packet_size()))
-        } else {
-            None
-        };
+    pub(crate) fn new(client: AsyncClient, config: &Config) -> Self {
         Self {
-            instance,
-            serialization,
-            base_topic: base_topic.to_string(),
-            framer,
-            publish_drain,
+            client,
+            base_topic: config.base_topic.clone(),
+            serializer: Serializer::new(&config.serialization),
+            framing: config.framing.enabled,
+            max_packet_size: config.max_packet_size as usize,
+            next_stream_id: AtomicU64::new(1),
+            size_hint: AtomicUsize::new(256),
         }
     }
 
-    /// Gets the serialization configuration.
-    pub fn config(&self) -> &SerializationConfig {
-        self.serialization.config()
-    }
-
-    /// Gets a reference to the serialization service.
-    ///
-    /// Useful for manual serialization operations outside of publishing.
-    pub fn serialization(&self) -> &ConfigurableSerializationService {
-        &self.serialization
-    }
-
-    /// Gets the base topic prefix.
-    ///
-    /// # Returns
-    /// - `&str`: The base topic prefix
     pub fn base_topic(&self) -> &str {
         &self.base_topic
     }
 
-    /// Applies base_topic to a given topic.
-    ///
-    /// # Arguments
-    /// - `topic`: Topic without base_topic prefix
-    ///
-    /// # Returns
-    /// - `String`: Full topic with base_topic prefix
-    fn with_base_topic(&self, topic: &str) -> String {
-        if self.base_topic.is_empty() {
-            topic.to_string()
-        } else {
-            format!(
-                "{}/{}",
-                self.base_topic.trim_end_matches('/'),
-                topic.trim_start_matches('/')
-            )
-        }
+    pub fn format(&self) -> SerializationFormat {
+        self.serializer.format()
     }
 
-    /// Publishes a message to the specified topic (with base_topic applied).
-    ///
-    /// # Arguments
-    /// - `data`: Message to serialize and send
-    /// - `metadata`: Topic (without base_topic), QoS, retain settings
-    ///
-    /// # Returns
-    /// - `Ok(())`: Message sent successfully
-    /// - `Err(TransferError)`: Serialization or network error
-    ///
-    /// # Serialization Process
-    /// 1. Serialize to format (JSON/MessagePack/CBOR)
-    /// 2. If size >= threshold and compression enabled: compress
-    /// 3. Apply base_topic prefix
-    /// 4. Send to broker with QoS and retain settings
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let metadata = EndpointMetadata {
-    ///     qos: 1,
-    ///     topic: "device/status".into(), // Without base_topic
-    ///     retain: true,
-    /// };
-    /// // With base_topic = "myapp", publishes to "myapp/device/status"
-    /// publisher.publish(&my_data, &metadata).await?;
-    /// ```
-    pub async fn publish<T: Serialize + Send + Sync>(
+    pub fn serializer(&self) -> &Serializer {
+        &self.serializer
+    }
+
+    /// Encodes `value` and queues it for `base_topic/meta.topic`.
+    /// Returns the number of payload bytes queued. Never waits: a full queue
+    /// is reported as [`TransferError::QueueFull`].
+    pub fn publish<T: Serialize + ?Sized>(
         &self,
-        data: T,
-        metadata: &EndpointMetadata,
-    ) -> Result<(), TransferError> {
-        let _guard = self.publish_drain.enter();
-        // Serialize and optionally compress
+        value: &T,
+        meta: &EndpointMetadata,
+    ) -> Result<usize, TransferError> {
+        let qos = match meta.qos {
+            0 => QoS::AtMostOnce,
+            1 => QoS::AtLeastOnce,
+            2 => QoS::ExactlyOnce,
+            other => return Err(TransferError::InvalidQos(other)),
+        };
+        let topic = join_topic(&self.base_topic, &meta.topic);
         let payload = self
-            .serialization
-            .serialize_and_compress(&data)
-            .await
-            .map_err(|e| TransferError::Serialization(e.to_string()))?;
+            .serializer
+            .encode(value, self.size_hint.load(Ordering::Relaxed))?;
+        self.size_hint.fetch_max(payload.len(), Ordering::Relaxed);
+        let max_payload = self
+            .max_packet_size
+            .checked_sub(publish_overhead(&topic, qos))
+            .ok_or(TransferError::PayloadTooLarge {
+                size: payload.len(),
+                max: self.max_packet_size,
+            })?;
+        trace!(topic = %topic, bytes = payload.len(), "publishing");
 
-        // Apply base_topic to topic
-        let full_topic = self.with_base_topic(&metadata.topic);
-
-        debug!(
-            "Publishing to topic '{}' (full: '{}'): {} bytes (compressed: {})",
-            metadata.topic,
-            full_topic,
-            payload.len(),
-            self.serialization.config().should_compress(payload.len()),
-        );
-
-        // Convert u8 QoS to rumqttc QoS enum
-        let qos = match metadata.qos {
-            0 => QoS::AtMostOnce,
-            1 => QoS::AtLeastOnce,
-            2 => QoS::ExactlyOnce,
-            _ => {
-                return Err(TransferError::InvalidMetadata(
-                    "Invalid QoS value".to_string(),
-                ));
+        if !self.framing {
+            if payload.len() > max_payload {
+                return Err(TransferError::PayloadTooLarge {
+                    size: payload.len(),
+                    max: self.max_packet_size,
+                });
             }
-        };
-
-        // Send to broker with full topic
-        self.instance
-            .client()
-            .publish(full_topic, qos, metadata.retain, payload)
-            .await?;
-
-        Ok(())
-    }
-
-    /// Publishes a message to a specific topic without using EndpointMetadata.
-    ///
-    /// Convenience method for simple publishing scenarios.
-    ///
-    /// # Arguments
-    /// - `data`: Message to serialize and send
-    /// - `topic`: Topic without base_topic prefix
-    /// - `qos`: Quality of Service level
-    /// - `retain`: Whether broker should retain the message
-    ///
-    /// # Returns
-    /// - `Ok(())`: Message sent successfully
-    /// - `Err(TransferError)`: Serialization or network error
-    ///
-    /// # Examples
-    /// ```ignore
-    /// // With base_topic = "myapp"
-    /// publisher.publish_to("sensor/temp", &data, 1, false).await?;
-    /// // Publishes to "myapp/sensor/temp"
-    /// ```
-    pub async fn publish_to<T: Serialize + Send + Sync>(
-        &self,
-        topic: &str,
-        data: T,
-        qos: u8,
-        retain: bool,
-    ) -> Result<(), TransferError> {
-        let metadata = EndpointMetadata {
-            topic: topic.to_string(),
-            qos,
-            retain,
-        };
-        self.publish(data, &metadata).await
-    }
-
-    fn mqtt_publish_overhead(full_topic: &str, qos: QoS) -> usize {
-        // MQTT PUBLISH (v3.1.1) overhead (worst-case Remaining Length encoding = 4 bytes):
-        // fixed header: 1 byte (packet type/flags) + up to 4 bytes (remaining length)
-        // topic name: 2 bytes length + topic bytes
-        // packet identifier: 2 bytes if QoS>0
-        let fixed_header = 1 + 4;
-        let topic = 2 + full_topic.as_bytes().len();
-        let pid = match qos {
-            QoS::AtMostOnce => 0,
-            QoS::AtLeastOnce | QoS::ExactlyOnce => 2,
-        };
-        fixed_header + topic + pid
-    }
-
-    pub async fn publish_framed<T: Serialize + Send + Sync>(
-        &self,
-        data: T,
-        metadata: &EndpointMetadata,
-    ) -> Result<(), TransferError> {
-        let Some(framer) = &self.framer else {
-            return self.publish(data, metadata).await;
-        };
-
-        let _guard = self.publish_drain.enter();
-
-        let payload = self.serialization.serialize_and_compress(&data).await?;
-        let payload = Bytes::from(payload);
-
-        let full_topic = self.with_base_topic(&metadata.topic);
-
-        let qos = match metadata.qos {
-            0 => QoS::AtMostOnce,
-            1 => QoS::AtLeastOnce,
-            2 => QoS::ExactlyOnce,
-            _ => {
-                return Err(TransferError::InvalidMetadata(
-                    "Invalid QoS value".to_string(),
-                ));
-            }
-        };
-
-        let broker_max_packet = self.instance.max_packet_size();
-
-        let overhead = Self::mqtt_publish_overhead(&full_topic, qos);
-        if broker_max_packet <= overhead {
-            return Err(TransferError::InvalidMetadata(
-                "max_packet_size is too small for MQTT overhead".to_string(),
-            ));
-        }
-        let max_mqtt_payload = broker_max_packet - overhead;
-
-        if max_mqtt_payload < FrameHeader::LEN {
-            return Err(TransferError::InvalidMetadata(
-                "max_packet_size is too small for framing header".to_string(),
-            ));
+            let len = payload.len();
+            self.client.try_publish(topic, qos, meta.retain, payload)?;
+            return Ok(len);
         }
 
-        let stream = framer.frames(
-            payload,
-            self.serialization.config().format,
-            metadata.qos,
-            max_mqtt_payload,
-        );
-        tokio::pin!(stream);
-
-        while let Some(item) = stream.next().await {
-            let FrameParts { header, chunk } = item?;
-
-            let mut out = Vec::with_capacity(header.len() + chunk.len());
-            out.extend_from_slice(&header);
-            out.extend_from_slice(&chunk);
-
-            self.instance
-                .client()
-                .publish(full_topic.clone(), qos, metadata.retain, out)
-                .await?;
+        if max_payload < FRAME_HEADER_LEN {
+            return Err(TransferError::PayloadTooLarge {
+                size: payload.len(),
+                max: self.max_packet_size,
+            });
         }
-
-        Ok(())
+        let stream_id = self.next_stream_id.fetch_add(1, Ordering::Relaxed);
+        let frames = framer::frames(
+            &payload,
+            self.serializer.format(),
+            meta.qos,
+            stream_id,
+            max_payload,
+        )?;
+        for frame in frames {
+            self.client
+                .try_publish(topic.clone(), qos, meta.retain, frame)?;
+        }
+        Ok(payload.len())
     }
 }
 
-/// Preset publisher configurations for common scenarios.
-///
-/// All presets automatically use the base_topic from the MqttInstance.
-pub mod presets {
+/// `base/topic` with duplicate slashes at the join removed; an empty base
+/// yields the topic unchanged (minus a leading slash).
+pub(crate) fn join_topic(base: &str, topic: &str) -> String {
+    let topic = topic.trim_start_matches('/');
+    let base = base.trim_end_matches('/');
+    if base.is_empty() {
+        topic.to_string()
+    } else {
+        let mut out = String::with_capacity(base.len() + 1 + topic.len());
+        out.push_str(base);
+        out.push('/');
+        out.push_str(topic);
+        out
+    }
+}
+
+/// Worst-case MQTT 3.1.1 PUBLISH overhead: fixed header (1 + up to 4 bytes),
+/// topic length prefix and topic, packet identifier for QoS 1/2.
+fn publish_overhead(topic: &str, qos: QoS) -> usize {
+    let pid = match qos {
+        QoS::AtMostOnce => 0,
+        QoS::AtLeastOnce | QoS::ExactlyOnce => 2,
+    };
+    1 + 4 + 2 + topic.len() + pid
+}
+
+#[cfg(test)]
+mod tests {
+    use rumqttc::Request;
+    use serde::Serialize;
+
     use super::*;
+    use crate::config::{CompressionType, FramingConfig, SerializationConfig};
 
-    /// Minimal setup: JSON, no compression.
-    ///
-    /// Use for:
-    /// - Development and debugging
-    /// - Small messages
-    /// - Human-readable output
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let publisher = presets::minimal(instance);
-    /// ```
-    pub fn minimal(instance: Arc<MqttInstance>) -> Publisher {
-        let base_topic = instance.base_topic().to_string();
-        Publisher::with_config(
-            instance,
-            &SerializationConfig {
+    #[derive(Serialize)]
+    struct Sample {
+        v: Vec<u8>,
+    }
+
+    fn config(max_packet_size: u32, framing: bool) -> Config {
+        Config {
+            client_id: "t".into(),
+            base_topic: "base".into(),
+            max_packet_size,
+            request_channel_capacity: 4,
+            framing: FramingConfig { enabled: framing },
+            serialization: SerializationConfig {
                 format: SerializationFormat::Json,
                 compression: CompressionType::None,
-                compression_threshold: 1024,
-                ..Default::default()
+                compression_threshold: 0,
             },
-            &base_topic,
-        )
+            ..Config::default()
+        }
     }
 
-    /// Compact setup: MessagePack, no compression.
-    ///
-    /// Use for:
-    /// - Bandwidth-constrained scenarios
-    /// - When size matters but not debugging
-    /// - Mobile/cellular networks
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let publisher = presets::compact(instance);
-    /// ```
-    pub fn compact(instance: Arc<MqttInstance>) -> Publisher {
-        let base_topic = instance.base_topic().to_string();
-        Publisher::with_config(
-            instance,
-            &SerializationConfig {
-                format: SerializationFormat::MessagePack,
-                compression: CompressionType::None,
-                compression_threshold: 1024,
-                ..Default::default()
-            },
-            &base_topic,
-        )
+    fn publisher(config: &Config) -> (Publisher, flume::Receiver<Request>) {
+        let (tx, rx) = flume::bounded(config.request_channel_capacity as usize);
+        (Publisher::new(AsyncClient::from_senders(tx), config), rx)
     }
 
-    /// Efficient setup: JSON with Gzip compression.
-    ///
-    /// Use for:
-    /// - Balancing readability and size
-    /// - Good compression-to-speed ratio
-    /// - When debuggability matters somewhat
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let publisher = presets::efficient(instance);
-    /// ```
-    pub fn efficient(instance: Arc<MqttInstance>) -> Publisher {
-        let base_topic = instance.base_topic().to_string();
-        Publisher::with_config(
-            instance,
-            &SerializationConfig {
-                format: SerializationFormat::Json,
-                compression: CompressionType::Gzip,
-                compression_threshold: 1024,
-                ..Default::default()
-            },
-            &base_topic,
-        )
+    fn drain(rx: &flume::Receiver<Request>) -> Vec<rumqttc::Publish> {
+        let mut out = Vec::new();
+        while let Ok(req) = rx.try_recv() {
+            if let Request::Publish(p) = req {
+                out.push(p);
+            }
+        }
+        out
     }
 
-    /// High-performance setup: MessagePack with Zstd.
-    ///
-    /// Use for:
-    /// - High-throughput scenarios
-    /// - CPU resources available
-    /// - Bandwidth-critical scenarios
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let publisher = presets::high_performance(instance);
-    /// ```
-    pub fn high_performance(instance: Arc<MqttInstance>) -> Publisher {
-        let base_topic = instance.base_topic().to_string();
-        Publisher::with_config(
-            instance,
-            &SerializationConfig {
-                format: SerializationFormat::MessagePack,
-                compression: CompressionType::Zstd,
-                compression_threshold: 512,
-                ..Default::default()
-            },
-            &base_topic,
-        )
+    #[test]
+    fn join_topic_rules() {
+        assert_eq!(join_topic("base", "metrics/cpu"), "base/metrics/cpu");
+        assert_eq!(join_topic("base/", "/metrics/cpu"), "base/metrics/cpu");
+        assert_eq!(join_topic("", "/metrics/cpu"), "metrics/cpu");
+        assert_eq!(join_topic("", "metrics/cpu"), "metrics/cpu");
     }
 
-    /// Ultra-compact setup: CBOR with Zstd.
-    ///
-    /// Use for:
-    /// - Maximum compression
-    /// - Interoperability with CBOR systems
-    /// - Extreme bandwidth constraints
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let publisher = presets::ultra_compact(instance);
-    /// ```
-    pub fn ultra_compact(instance: Arc<MqttInstance>) -> Publisher {
-        let base_topic = instance.base_topic().to_string();
-        Publisher::with_config(
-            instance,
-            &SerializationConfig {
-                format: SerializationFormat::Cbor,
-                compression: CompressionType::Zstd,
-                compression_threshold: 256,
-                ..Default::default()
-            },
-            &base_topic,
-        )
+    #[test]
+    fn publishes_with_base_topic_qos_and_retain() {
+        let cfg = config(1024, false);
+        let (publisher, eventloop) = publisher(&cfg);
+        let meta = EndpointMetadata {
+            topic: "metrics/cpu".into(),
+            qos: 1,
+            retain: true,
+        };
+        let n = publisher
+            .publish(&Sample { v: vec![1, 2, 3] }, &meta)
+            .unwrap();
+        let sent = drain(&eventloop);
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].topic, "base/metrics/cpu");
+        assert_eq!(sent[0].qos, QoS::AtLeastOnce);
+        assert!(sent[0].retain);
+        assert_eq!(&sent[0].payload[..], br#"{"v":[1,2,3]}"#);
+        assert_eq!(n, sent[0].payload.len());
+    }
+
+    #[test]
+    fn oversized_payload_is_rejected_not_queued() {
+        let cfg = config(64, false);
+        let (publisher, eventloop) = publisher(&cfg);
+        let meta = EndpointMetadata {
+            topic: "metrics/cpu".into(),
+            qos: 0,
+            retain: false,
+        };
+        let err = publisher
+            .publish(&Sample { v: vec![7; 100] }, &meta)
+            .unwrap_err();
+        assert!(
+            matches!(err, TransferError::PayloadTooLarge { max: 64, .. }),
+            "{err}"
+        );
+        assert!(drain(&eventloop).is_empty());
+    }
+
+    #[test]
+    fn full_queue_is_reported() {
+        let cfg = config(1024, false);
+        let (publisher, eventloop) = publisher(&cfg);
+        let meta = EndpointMetadata {
+            topic: "t".into(),
+            qos: 0,
+            retain: false,
+        };
+        for _ in 0..4 {
+            publisher.publish(&Sample { v: vec![] }, &meta).unwrap();
+        }
+        assert!(matches!(
+            publisher.publish(&Sample { v: vec![] }, &meta),
+            Err(TransferError::QueueFull)
+        ));
+        assert_eq!(drain(&eventloop).len(), 4);
+    }
+
+    #[test]
+    fn invalid_qos_is_rejected() {
+        let cfg = config(1024, false);
+        let (publisher, _eventloop) = publisher(&cfg);
+        let meta = EndpointMetadata {
+            topic: "t".into(),
+            qos: 3,
+            retain: false,
+        };
+        assert!(matches!(
+            publisher.publish(&Sample { v: vec![] }, &meta),
+            Err(TransferError::InvalidQos(3))
+        ));
+    }
+
+    #[test]
+    fn framing_splits_large_payloads() {
+        // overhead for topic "base/t" at QoS 0 is 1+4+2+6 = 13; frames of 64-13 = 51 bytes
+        let cfg = config(64, true);
+        let (publisher, eventloop) = publisher(&cfg);
+        let meta = EndpointMetadata {
+            topic: "t".into(),
+            qos: 0,
+            retain: false,
+        };
+        let sample = Sample { v: vec![9; 40] };
+        let expected = serde_json::to_vec(&sample).unwrap();
+        publisher.publish(&sample, &meta).unwrap();
+        let sent = drain(&eventloop);
+        assert!(sent.len() > 1);
+        let mut joined = Vec::new();
+        for (i, p) in sent.iter().enumerate() {
+            assert!(p.payload.len() <= 51);
+            let header = crate::framer::FrameHeader::decode(&p.payload).unwrap();
+            assert_eq!(header.frame_index as usize, i);
+            assert_eq!(header.frame_total as usize, sent.len());
+            joined.extend_from_slice(&p.payload[FRAME_HEADER_LEN..]);
+        }
+        assert_eq!(joined, expected);
     }
 }

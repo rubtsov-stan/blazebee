@@ -1,48 +1,51 @@
 [Unit]
-Description=BlazeBee - Lightweight System Metrics Collector and MQTT Publisher
+Description=BlazeBee system metrics collector
 Documentation=https://rubtsov-stan.github.io/blazebee/
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=exec
 ExecStart=/usr/bin/blazebee
-Environment="RUST_LOG=info"
-Environment="RUST_BACKTRACE=1"
-Environment="BLAZEBEE_CONFIG=/etc/blazebee/config.toml"
-KillMode=mixed
-KillSignal=SIGTERM
-
-User=blazebee
-Group=blazebee
-NoNewPrivileges=true
-PrivateTmp=true
-PrivateDevices=true
-ProtectSystem=strict
-ProtectHome=read-only
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictNamespaces=true
-RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
-RestrictRealtime=true
-
-WorkingDirectory=/var/lib/blazebee
-ReadWritePaths=/var/lib/blazebee
-ReadOnlyPaths=/etc/blazebee/config.toml
+Environment=BLAZEBEE_CONFIG=/etc/blazebee/config.toml
+Restart=on-failure
+RestartSec=5s
+# SIGTERM triggers a clean MQTT disconnect; the process exits well within this.
+TimeoutStopSec=15
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=blazebee
-LimitNOFILE=65535
-LimitNPROC=512
-TimeoutStartSec=30
-TimeoutStopSec=10
+LimitNOFILE=1024
+UMask=0077
 
-Restart=on-failure
-RestartSec=5s
-RestartPreventExitStatus=143
-StartLimitIntervalSec=60
-StartLimitBurst=10
+# Sandboxing. The service only reads /proc and /sys, runs `systemctl` for the
+# optional systemd collector and connects to the broker.
+DynamicUser=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+# @clock allows the read-only adjtimex() query of the ntp collector; without
+# CAP_SYS_TIME the clock cannot be changed. ProtectClock= is not used because
+# it would block that query.
+SystemCallFilter=@system-service @clock
+# AF_UNIX: journald and D-Bus (systemctl). AF_NETLINK: address resolution.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target

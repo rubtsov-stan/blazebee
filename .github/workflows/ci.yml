@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Format, lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --no-default-features --features large -- -D warnings
+      - run: cargo test --workspace --no-default-features --features large
+      - run: cargo test --workspace --no-default-features --features minimal
+      - name: Every collector feature compiles on its own
+        run: |
+          for feature in $(grep -oE '^collector-[a-z]+' Cargo.toml); do
+            cargo check --no-default-features --features "$feature"
+          done
+      - run: cargo build --workspace --no-default-features
+
+  msrv:
+    name: MSRV (1.86)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.86"
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --features large --locked
+
+  package:
+    name: Debian package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-deb --locked
+      - run: cargo deb --variant standard
+      - name: Install and verify the unit
+        run: |
+          sudo apt-get install -y ./target/debian/*.deb
+          systemd-analyze verify /lib/systemd/system/blazebee.service
+          blazebee || test $? -eq 2

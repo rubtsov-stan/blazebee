@@ -1,187 +1,103 @@
 ---
 title: Advanced Metrics
-description: In-depth metrics for specialized monitoring and diagnostics.
+description: Collectors included in the large build only.
 ---
 
-Advanced metrics in BlazeBee are designed for environments where basic system visibility is insufficient. These collectors expose low-level kernel, hardware, and service-specific signals that are critical for troubleshooting performance degradation, capacity issues, and hardware anomalies.
+These collectors cover hardware, kernel subsystems and network internals
+that not every host exposes. A collector whose kernel interface is missing
+fails each cycle; the failure is logged once at `warn`, then every 120
+cycles, and does not affect the other collectors.
 
-Advanced collectors are **disabled by default** and must be explicitly enabled at build time and in configuration.
+### `arp` — `/proc/net/arp`
 
-### Purpose
+`{"entries": [...]}`: `ip_address`, `hw_type`, `flags`, `hw_address`,
+`mask`, `device`.
 
-This page describes:
-- What advanced collectors are available
-- What subsystems they observe
-- When and why they should be used
-- How they integrate into the standard metrics pipeline
+### `softnet` — `/proc/net/softnet_stat`
 
-These metrics are intended for experienced operators and diagnostic workflows.
+`{"stats": [...]}` per CPU (`cpu` is the line index): `processed`,
+`dropped`, `time_squeeze`, `received_rps`, `flow_limit_count`.
 
-### Available Advanced Collectors
+### `conntrack` — `nf_conntrack_count`, `nf_conntrack_max` sysctls
 
-#### Thermal
+`entries`, `max`. Reports "nf_conntrack is not loaded" when the module is
+absent.
 
-**Collector name:** `thermal`
+### `ipvs` — `/proc/net/ip_vs_stats`
 
-- Reads temperature data from thermal zones
-- Sources include `/sys/class/thermal`
-- Reports per-sensor temperatures in degrees
+Cumulative totals (the file's hexadecimal third line): `connections`,
+`incoming_packets`, `outgoing_packets`, `incoming_bytes`, `outgoing_bytes`.
 
-**Use cases:**
-- Detect overheating CPUs or SoCs
-- Monitor passive cooling efficiency
-- Prevent thermal throttling
+### `pressure` — `/proc/pressure/{cpu,memory,io}`
 
----
+`{"stats": [...]}` per resource: `metric_type`, `some_avg10`, `some_avg60`,
+`some_avg300`, `some_total_us`, and `full_*` equivalents (`null` where the
+kernel does not report a `full` line). Requires `CONFIG_PSI` (`psi=1` on some
+distributions).
 
-#### Power
+### `thermal` — `/sys/class/thermal/thermal_zone*`
 
-**Collector name:** `power`
+`{"zones": [...]}`: `zone_id`, `zone_type`, `temperature` (°C, millidegree
+resolution). Zones that fail to read in a cycle are omitted.
 
-- Exposes battery and power-supply information
-- Reads from `/sys/class/power_supply`
-- Includes charge level, voltage, current, and status
+### `hwmon` — `/sys/class/hwmon/*/temp*_input`
 
-**Use cases:**
-- Edge devices
-- Battery-backed systems
-- Power consumption diagnostics
+`{"sensors": [...]}`: `name` (`hwmonN`), `chip`, `sensor` (`tempN`),
+`label`, `value` (°C), `unit` (`"C"`).
 
----
+### `entropy` — `/proc/sys/kernel/random/entropy_avail`
 
-#### Pressure (PSI)
+`available_entropy` in bits.
 
-**Collector name:** `pressure`
+### `filefd` — `/proc/sys/fs/file-nr`
 
-- Reports Linux PSI (Pressure Stall Information)
-- Covers CPU, memory, and IO pressure
-- Indicates how often tasks are stalled due to resource contention
+`allocated`, `maximum`.
 
-**Use cases:**
-- Diagnosing latency spikes
-- Capacity planning
-- Identifying hidden resource saturation
+### `schedstat` — `/proc/schedstat`
 
----
+`{"stats": [...]}` per CPU: `cpu`, `running_ns`, `run_delay_ns`,
+`timeslices`.
 
-#### Systemd
+### `stat` — `/proc/stat`
 
-**Collector name:** `systemd`
+`boot_time` (Unix time), `total_forks`, `total_interrupts`.
 
-- Queries systemd unit states
-- Tracks service health and activation status
-- Requires systemd-based Linux distributions
+### `power` — `/sys/class/power_supply`
 
-**Use cases:**
-- Service availability monitoring
-- Detecting failed or flapping units
-- Infrastructure observability without agents
+`{"stats": [...]}` per supply: `name`, `supply_type`, `status`, `online`,
+`capacity_percent`, `energy_now`, `energy_full`, `power_now`, `charge_now`,
+`charge_full`, `current_now`, `voltage_now`. Attributes a supply does not
+expose are `null`. Units are the kernel's micro-units (µWh, µW, µAh, µA, µV).
 
----
+### `edac` — `/sys/devices/system/edac/mc`
 
-#### NTP
+`{"stats": [...]}` per memory controller: `controller`,
+`correctable_errors`, `uncorrectable_errors`, `dimm_label` (comma-separated
+labels when exposed).
 
-**Collector name:** `ntp`
+### `mdraid` — `/proc/mdstat`
 
-- Reports clock offset and synchronization state
-- Uses system time sources
-- Indicates drift relative to reference clocks
+`{"stats": [...]}` per array: `device`, `level`, `state`, `active_devices`,
+`total_devices`, `failed_devices`, `spare_devices`, `degraded`,
+`sync_action` (`recovery`, `resync`, `reshape`, `check` or `null`),
+`sync_progress` (percent or `null`).
 
-**Use cases:**
-- Distributed systems
-- Time-sensitive workloads
-- Debugging clock skew issues
-
----
-
-#### Hardware Monitoring (HWMON)
-
-**Collector name:** `hwmon`
-
-- Reads hardware sensors via `/sys/class/hwmon`
-- Includes voltages, fan speeds, temperatures
-
-**Use cases:**
-- Bare-metal monitoring
-- Detecting failing components
-- Environmental diagnostics
-
----
-
-#### Network Statistics (Extended)
-
-**Collector names:** `arp`, `netstat`, `conntrack`
-
-- ARP cache statistics
-- Kernel network counters
-- Connection tracking table usage
-
-**Use cases:**
-- Network debugging
-- Detecting connection leaks
-- Firewall and NAT diagnostics
-
----
-
-### File Descriptors
-
-**Collector name:** `filefd`
-
-- Reports file descriptor limits and usage
-- Reads from `/proc/sys/fs` and process tables
-
-**Use cases:**
-- Preventing FD exhaustion
-- Debugging connection-heavy services
-- Capacity tuning
-
----
-
-### Additional Advanced Collectors
-
-Depending on build features, BlazeBee may also support:
-
-- `mdraid` — RAID array health
-- `edac` — memory error detection
-- `schedstat` — scheduler statistics
-- `entropy` — kernel entropy pool
-- `filesystem` — detailed FS stats
-- `powercap` — RAPL power limits
-
-### Enabling Advanced Metrics
-
-### Build-Time Requirement
-
-Advanced collectors are included only when built with the `large` feature set or explicit collector features.
+## Building
 
 ```bash
-cargo build --release --features "blazebee-mqtt-v3 large"
-````
-
-### Runtime Configuration
-
-Each advanced collector must be enabled in `config.toml`:
-
-```toml
-[[metrics.collectors.enabled]]
-name = "pressure"
-[metrics.collectors.enabled.metadata]
-topic  = "metrics/pressure"
-qos    = 1
-retain = true
+cargo build --release --no-default-features --features large
 ```
 
-* One block per collector
-* Topic structure is fully user-defined
-* QoS and retain flags apply per collector
+or a specific subset:
 
-### Operational Considerations
+```bash
+cargo build --release --no-default-features \
+  --features "collector-cpu,collector-ram,collector-pressure,collector-thermal"
+```
 
-* Some collectors require elevated privileges
-* Linux-only functionality
-* Increased I/O and parsing overhead
-* Recommended for diagnostic or targeted deployments
+## Permissions
 
-### Summary
-
-Advanced metrics provide deep visibility into system internals. They are powerful but should be enabled selectively. When used appropriately, they enable early detection of failures, performance bottlenecks, and hardware issues that are invisible to standard monitoring.
+All of the above are readable by an unprivileged user on a default kernel.
+The systemd unit shipped with the package allows the `adjtimex` syscall
+and `AF_UNIX` sockets so that the `ntp` and `systemd` collectors work inside
+the sandbox; `ProtectClock=` would block the former.
