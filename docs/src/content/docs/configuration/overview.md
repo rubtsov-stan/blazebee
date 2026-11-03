@@ -81,6 +81,22 @@ retain = true
 
 With `base_topic = "blazebee"` this publishes to `blazebee/metrics/cpu`.
 
+## Upgrading from 0.1.x
+
+Version 0.2.0 rejects unknown keys and moved or removed a few of them:
+
+| 0.1.x | 0.2.0 |
+|-------|-------|
+| `[metrics.collectors] collection_interval` | `[metrics] collection_interval` |
+| `[transport.serialization] preset` | removed; set `format`, `compression`, `compression_threshold` |
+| `[logger] timestamp_format = "Custom(...)"` | `rfc3339` or `unix` |
+| `client_id` empty → random UUID | `client_id` empty → `blazebee-<hostname>` |
+| `max_packet_size` ≤ 65535 | up to 268435455, default 1048576 |
+
+Run the new binary once against the old file; each rejected key is reported
+with its location. The full list of behaviour changes is in the project
+`CHANGELOG.md`.
+
 ## Minimal file
 
 ```toml

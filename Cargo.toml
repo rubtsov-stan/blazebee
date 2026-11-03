@@ -2,7 +2,7 @@
 members = ["crates/mqtt/v3"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.86"
 license = "Apache-2.0"
@@ -37,6 +37,12 @@ publish = false
 [[bin]]
 name = "blazebee"
 path = "src/main.rs"
+
+[package.metadata.release]
+tag-name = "v{{version}}"
+sign-tag = false
+push = false
+publish = false
 
 [features]
 default = ["standard"]
