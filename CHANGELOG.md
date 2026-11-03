@@ -1,10 +1,32 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-11-03
 
 This release reworks the runtime, the transport and most collectors. Several
 configuration keys changed; the loader now rejects unknown keys, so an old
-file fails at startup with a message naming the offending key.
+file fails at startup with a message naming the offending key. See
+"Upgrading from 0.1.x" below.
+
+### Upgrading from 0.1.x
+
+1. Move `collection_interval` from `[metrics.collectors]` to `[metrics]`
+   if it was set there.
+2. Remove `transport.serialization.preset` and set `format`, `compression`
+   and `compression_threshold` explicitly. Configurations that had a
+   `[transport.serialization]` section were effectively uncompressed JSON
+   before; the new default (`compression = "none"`) keeps that behaviour.
+3. Replace `timestamp_format = "Custom(...)"` with `rfc3339` or `unix`.
+4. Remove `[logger.journald] identifier` only if you relied on the old
+   requirement; it is now optional and defaults to `blazebee`.
+5. Set `client_id` explicitly if the broker relies on a specific value;
+   an empty value now means `blazebee-<hostname>` instead of a random UUID.
+6. If a consumer parses the `ntp`, `schedstat`, `disk`, `thermal` or `hwmon`
+   payloads, review the schema changes listed under "Breaking changes".
+7. Rebuild custom builds with `--no-default-features --features <set>`;
+   the default feature set is now `standard`.
+
+Start the new binary once with the old file: every rejected key is reported
+with its location.
 
 ### Breaking changes
 
