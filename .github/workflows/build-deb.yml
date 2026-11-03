@@ -40,8 +40,10 @@ jobs:
           toolchain: 1.86
           target: ${{ matrix.arch.target }}
 
+      # Prebuilt binary: compiling cargo-deb from source needs a newer rustc
+      # than the pinned build toolchain.
       - name: Install cargo-deb
-        run: cargo install cargo-deb
+        uses: taiki-e/install-action@cargo-deb
 
       - name: Verify version matches tag
         run: |

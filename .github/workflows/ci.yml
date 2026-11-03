@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo install cargo-deb --locked
+      - uses: taiki-e/install-action@cargo-deb
       - run: cargo deb --variant standard
       - name: Install and verify the unit
         run: |
