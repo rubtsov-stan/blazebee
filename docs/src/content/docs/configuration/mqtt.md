@@ -1,522 +1,115 @@
 ---
 title: MQTT Configuration
-description: Set up MQTT transport for secure, reliable metrics publishing.
+description: Broker connection, authentication, TLS, encoding and delivery behaviour.
 ---
 
-BlazeBee uses MQTT v3 for efficient, scalable data distribution, integrating smoothly with monitoring ecosystems for real-time visibility.
+BlazeBee speaks MQTT 3.1.1 through the [`rumqttc`](https://github.com/bytebeamio/rumqtt)
+client. All settings live under `[transport]`.
 
-### Purpose of This Page
-Details transport settings. Use for MQTT tuning.
+## Connection
 
-### Features
+| Key                        | Default              | Notes |
+|----------------------------|----------------------|-------|
+| `host`                     | `"localhost"`        | Host name or IP address. |
+| `port`                     | `1883`               | `8883` is the usual TLS port. |
+| `base_topic`               | `"blazebee_mqtt_v3"` | Prefix for every topic, including `status`. May be empty. Set it explicitly; the example file uses `"blazebee"`. |
+| `client_id`                | `""`                 | Empty means `blazebee-<hostname>`. Keep it stable when `clean_session = false`. |
+| `username`, `password`     | unset                | Sent in CONNECT. Use `password = "${MQTT_PASSWORD}"` to read it from the environment. `password` requires `username`. |
+| `keep_alive`               | `60`                 | Seconds, 5 .. 65535. |
+| `clean_session`            | `false`              | `false` keeps the session and queued QoS 1/2 messages on the broker across reconnects. |
+| `max_inflight`             | `10`                 | Unacknowledged QoS 1/2 publishes allowed at once. |
+| `max_packet_size`          | `1048576`            | Bytes, 64 .. 268435455. Larger payloads are dropped with an error instead of being sent. |
+| `request_channel_capacity` | `64`                 | Bounded queue between collectors and the network. Must be larger than the number of enabled collectors. |
 
-- **Automatic Reconnection** - Exponential backoff with configurable limits
-- **Connection State Monitoring** - Watch channel for real-time connection state updates
-- **Multiple Serialization Formats** - JSON, MessagePack, CBOR support
-- **Compression Support** - Gzip and Zstd compression for efficient bandwidth usage
-- **TLS/SSL** - Client certificate authentication and CA verification
-- **Configuration Management** - Load from TOML, JSON, YAML with validation
-- **Comprehensive Error Handling** - Categorized error types for proper recovery
-- **Async/Await** - Full tokio integration with non-blocking operations
-- **Subscription Persistence** - Automatic resubscription on reconnection
+## Status topic and last will
 
+On every successful connection the agent publishes `online` (retained,
+QoS 1) to `<base_topic>/status`. The CONNECT packet carries a last will
+that publishes `offline` to the same topic if the connection drops without a
+DISCONNECT; a clean shutdown publishes `offline` itself. Subscribe to this
+topic to distinguish an idle agent from an unreachable host.
 
-### Minimal Example
+## TLS
 
-```rust
-use blazebee_mqtt_v3::{MqttManager, EndpointMetadata, Publisher};
-use serde::{Serialize, Deserialize};
-
-#[derive(Serialize, Deserialize)]
-struct SensorReading {
-    temperature: f32,
-    humidity: f32,
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create MQTT manager
-    let manager = MqttManager::new("localhost", 1883)?;
-    let instance = std::sync::Arc::new(manager.build_and_start().await?);
-
-    // Create publisher
-    let publisher = Publisher::new(instance.clone());
-
-    // Subscribe to topics
-    instance.subscribe("sensor/+/data").await?;
-    instance.start_monitoring().await?;
-
-    // Publish a message
-    let reading = SensorReading {
-        temperature: 22.5,
-        humidity: 55.0,
-    };
-
-    let metadata = EndpointMetadata {
-        qos: 1,
-        topic: "sensor/living_room".into(),
-        retain: false,
-    };
-
-    publisher.publish(&reading, &metadata).await?;
-
-    // Graceful shutdown
-    instance.shutdown().await?;
-    Ok(())
-}
+```toml
+[transport.tls]
+enabled = true
+# ca_cert_path     = "/etc/ssl/certs/ca-certificates.crt"
+# client_cert_path = "/etc/blazebee/client.crt"
+# client_key_path  = "/etc/blazebee/client.key"
 ```
 
-### Configuration
+- TLS is used when `enabled = true` or when `ca_cert_path` is set.
+- Without `ca_cert_path`, the broker certificate is verified against the
+  system trust store (`SSL_CERT_FILE` in the container image).
+- `ca_cert_path` points to a PEM bundle for private CAs.
+- `client_cert_path` and `client_key_path` (unencrypted PEM) enable mutual
+  TLS and must be set together. All files are checked at startup.
 
-### From TOML File
+TLS handshake failures are treated as unrecoverable: the process exits with
+status 1 rather than retrying with a configuration that cannot work.
 
-Create `config.toml`:
+## Serialization and compression
+
+```toml
+[transport.serialization]
+format = "json"               # json | msgpack | cbor (default json)
+compression = "none"          # none | gzip | zstd (default none)
+compression_threshold = 1024  # bytes; smaller payloads are sent as is
+```
+
+gzip reduces the larger payloads (`vmstat`, `netstat`) by roughly 80 %; on
+an aarch64 server core it costs about 110 µs for a 7 KB message, zstd about
+35 µs with a similar ratio.
+
+MessagePack uses positional (array) encoding of structs; CBOR encodes
+structs as maps keyed by field name. MQTT 3.1.1 has no content-type
+metadata, so consumers must know the configured format and compression.
+
+## Framing
+
+```toml
+[transport.framing]
+enabled = false
+```
+
+When enabled, every payload is split into frames that fit
+`max_packet_size`. Each frame starts with a 21-byte header: magic `FR`,
+version `1`, format (`0` json, `1` msgpack, `2` cbor), QoS, a 64-bit stream
+id, a 32-bit frame index and the 32-bit frame count, all big-endian. Frames
+are published to the sample's topic in order. Leave this off unless the
+consumer reassembles frames; with it on, even a small payload carries the
+header.
+
+## Connection behaviour
+
+- **Reconnection**: after a lost or refused connection the agent waits 1 s,
+  then doubles the delay up to 60 s, with ±20 % jitter, and keeps retrying
+  for as long as the process runs. A successful connection resets the delay.
+- **Fatal errors**: bad credentials (`BadUserNamePassword`, `NotAuthorized`),
+  rejected protocol version or client id, TLS errors and local permission
+  problems stop the process with exit status 1. Under systemd this triggers
+  `Restart=on-failure`.
+- **While disconnected**: no samples are taken. Publishes that were already
+  queued are retransmitted after reconnect according to their QoS and the
+  session setting.
+- **Shutdown**: `offline` is published, DISCONNECT is sent and the process
+  waits up to 3 s for the broker to take it.
+
+## Example with a private CA and credentials
 
 ```toml
 [transport]
-client_id = "your-client-id"
-base_topic = "my-app"
-host = "mqtt.example.com"
+host = "mqtt.internal"
 port = 8883
-clean_session = false
-keep_alive = 60
-max_inflight = 100
+base_topic = "site-a/blazebee"
+username = "blazebee"
+password = "${MQTT_PASSWORD}"
 
 [transport.tls]
-ca_cert_path = "/etc/mqtt/ca.pem"
-client_cert_path = "/etc/mqtt/client.crt"
-client_key_path = "/etc/mqtt/client.key"
-
-[transport.serialization]
-format = "msgpack"
-compression = "zstd"
-compression_threshold = 1024
+ca_cert_path = "/etc/blazebee/ca.pem"
 ```
 
-Load it:
-
-```rust
-let config_text = std::fs::read_to_string("mqtt.toml")?;
-let config: Config = toml::from_str(&config_text)?;
-let manager = MqttManager::from_config(config)?;
-```
-
-### Programmatic Configuration
-
-```rust
-use blazebee_mqtt_v3::{Config, TlsConfig};
-
-let config = Config {
-    base_topic: "iot-app".into(),
-    host: "broker.hivemq.com".into(),
-    port: 8883,
-    clean_session: false,
-    max_inflight: 50,
-    keep_alive: 60,
-    client_id: "device_001".into(),
-    max_packet_size: Some(65535),
-    request_channel_capacity: Some(100),
-    tls: Some(TlsConfig::with_ca_only("/etc/mqtt/ca.pem")),
-};
-
-let manager = MqttManager::from_config(config)?;
-```
-
-### Usage Patterns
-
-#### Pattern 1: Monitoring Connection State
-
-```rust
-use mqtt_manager::ConnectionState;
-
-let mut state_rx = instance.supervisor().state_receiver();
-
-tokio::spawn(async move {
-    loop {
-        if state_rx.changed().await.is_err() {
-            break;
-        }
-
-        match state_rx.borrow().clone() {
-            ConnectionState::Connected => {
-                println!("Online");
-            }
-            ConnectionState::Disconnected(reason) => {
-                eprintln!("Offline: {}", reason);
-            }
-            ConnectionState::Reconnecting(secs) => {
-                println!("Reconnecting in {:.1}s", secs);
-            }
-            _ => {}
-        }
-    }
-});
-```
-
-#### Pattern 2: Publishing with Retry
-
-```rust
-// Simple publish with automatic retry on failure
-async fn publish_with_retry(
-    publisher: &Publisher,
-    data: &SensorReading,
-    metadata: &EndpointMetadata,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut delay = std::time::Duration::from_millis(100);
-    
-    for attempt in 1..=5 {
-        match publisher.publish(data, metadata).await {
-            Ok(()) => return Ok(()),
-            Err(e) if attempt < 5 => {
-                eprintln!("Attempt {} failed: {}", attempt, e);
-                tokio::time::sleep(delay).await;
-                delay *= 2;
-            }
-            Err(e) => return Err(Box::new(e)),
-        }
-    }
-}
-```
-
-#### Pattern 3: Publisher Presets
-
-Choose a preset configuration optimized for your use case:
-
-```rust
-// Development/debugging: JSON, no compression
-let publisher = mqtt_manager::publisher::presets::minimal(instance);
-
-// Compact: MessagePack, no compression
-let publisher = mqtt_manager::publisher::presets::compact(instance);
-
-// Balanced: JSON + Gzip
-let publisher = mqtt_manager::publisher::presets::efficient(instance);
-
-// High-throughput: MessagePack + Zstd
-let publisher = mqtt_manager::publisher::presets::high_performance(instance);
-
-// Ultra-compact: CBOR + Zstd
-let publisher = mqtt_manager::publisher::presets::ultra_compact(instance);
-```
-
-#### Pattern 4: Custom Serialization
-
-```rust
-use mqtt_manager::config::{SerializationConfig, SerializationFormat, CompressionType};
-
-let config = SerializationConfig {
-    format: SerializationFormat::MessagePack,
-    compression: CompressionType::Zstd,
-    compression_threshold: 512,
-};
-
-let publisher = Publisher::with_config(instance, &config);
-```
-
-### Architecture
-
-The library follows a layered architecture:
-
-```
-Application Code
-    ↓
-MqttInstance (high-level API)
-    ├─ Publisher (serialization, compression, framing)
-    ├─ Supervisor (lifecycle management)
-    └─ ConnectionKernel (event loop, reconnection)
-        ├─ Backoff (exponential backoff)
-        └─ rumqttc AsyncClient + EventLoop
-            ↓
-        Network (TCP/TLS)
-```
-
-### Core Components
-
-- **MqttManager** - Entry point, coordinates initialization
-- **MqttInstance** - Active connection, provides public API
-- **Publisher** - Handles serialization, compression, publishing
-- **ConnectionKernel** - Manages event loop, reconnection, state
-- **SubscriptionManager** - Tracks and resubscribes to topics
-- **Supervisor** - Monitors connection lifecycle, publishes status
-- **Backoff** - Exponential backoff algorithm with configurable limits
-- **Framer** - Handles the message into frames
-
-### Error Handling
-
-The library uses a unified `TransferError` type that categorizes all failures:
-
-```rust
-use mqtt_manager::TransferError;
-
-match publisher.publish(&data, &metadata).await {
-    Ok(()) => println!("Success"),
-    
-    // Configuration errors (fix and restart)
-    Err(TransferError::ClientSetup(msg)) => {
-        eprintln!("Setup failed: {}", msg);
-        std::process::exit(1);
-    }
-    
-    // Data serialization errors (fix data)
-    Err(TransferError::Serialization(msg)) => {
-        eprintln!("Data too large: {}", msg);
-    }
-    
-    // Network errors (will retry automatically)
-    Err(TransferError::ClientConnection(e)) => {
-        eprintln!("Network error: {}", e);
-    }
-    
-    // Retry policy exhausted (critical)
-    Err(TransferError::RetriesPolicy(e)) => {
-        eprintln!("Cannot reconnect: {}", e);
-        std::process::exit(1);
-    }
-    
-    Err(e) => eprintln!("Other error: {}", e),
-}
-```
-
-### QoS Guarantees
-
-This library supports all three MQTT QoS levels:
-
-| QoS | Name | Guarantee | Use Case |
-|-----|------|-----------|----------|
-| 0 | At Most Once | Fire-and-forget | Sensors with frequent updates |
-| 1 | At Least Once | Delivered once or more | Important notifications |
-| 2 | Exactly Once | Delivered exactly once | Critical transactions |
-
-**Note**: QoS is per-message, set in `EndpointMetadata`. For critical data, always use QoS 1+.
-
-### Connection Lifecycle
-
-The connection goes through these states:
-
-```
-Connecting ──(CONNACK)──> Connected
-                            ↓
-                     (network error)
-                            ↓
-                       Disconnected
-                            ↓
-                      Reconnecting(N)
-                            ↓
-                        Connecting
-```
-
-### TLS/SSL Configuration
-
-### CA-Only Verification (Most Common)
-
-```rust
-let tls = TlsConfig::with_ca_only("/etc/mqtt/ca.pem");
-```
-
-### Mutual TLS (Client Authentication)
-
-```rust
-let tls = TlsConfig::new(
-    "/etc/mqtt/ca.pem",
-    "/etc/mqtt/client.crt",
-    "/etc/mqtt/client.key",
-);
-```
-
-**Security Best Practices**:
-- Keep private keys in secure storage (e.g., HashiCorp Vault)
-- Set file permissions: `chmod 600` on key files
-- Never commit keys to version control
-- Rotate certificates before expiry
-- Use strong key sizes (2048+ bits for RSA)
-
-### Serialization Formats
-
-Choose based on your requirements:
-
-| Format | Size | Speed | Human-Readable | Use Case |
-|--------|------|-------|---|---|
-| JSON | Large (1.0x) | Slow | Yes | Debugging, development |
-| MessagePack | Small (0.6x) | Fast | No | Production, bandwidth-limited |
-| CBOR | Small (0.6x) | Medium | No | Interoperability |
-
-**Compression** reduces size by 60-80% for text/structured data:
-- **Gzip**: Standard, good compatibility
-- **Zstd**: Faster, better ratio (recommended)
-
-### Performance
-
-Typical performance on modern hardware (Intel i7, 8GB RAM):
-
-| Metric | Value |
-|--------|-------|
-| Throughput | 1,000-2,000 msg/sec |
-| Latency (network) | 10-100 ms |
-| Memory (idle) | 5-10 MB |
-| Memory (per subscription) | ~100 bytes |
-| CPU (idle) | < 1% |
-| CPU (loaded) | < 5% |
-
-**Optimization Tips**:
-- Use MessagePack + Zstd for maximum throughput
-- Increase `max_inflight` for bursty traffic
-- Increase `request_channel_capacity` to buffer more locally
-- Use QoS 0 only for high-frequency, low-importance data
-
-### Thread Safety
-
-All public types are safe for concurrent use:
-
-```rust
-let instance = Arc::new(instance);
-let publisher = Publisher::new(instance.clone());
-
-// Spawn multiple tasks publishing concurrently
-for _ in 0..10 {
-    let pub = publisher.clone();
-    tokio::spawn(async move {
-        // Safe to publish from multiple tasks
-        pub.publish(&data, &metadata).await?;
-    });
-}
-// or Spawn multiple tasks publishing concurrently with frame stream
-for _ in 0..10 {
-    let pub = publisher.clone();
-    tokio::spawn(async move {
-        // Safe to publish from multiple tasks
-        pub.publish_framed(&data, &metadata).await?;
-    });
-}
-```
-
-### Examples
-
-The repository includes several complete examples:
-
-- `./crates/mqtt/v3/01_basic_publish_subscribe.rs` - Simple pub/sub with state monitoring
-- `./crates/mqtt/v3/02_serialization_formats.rs` - Different serialization options
-- `./crates/mqtt/v3/03_basic_publish_framed_msg.rs` - Different serialization options with frame stream
-
-Run examples:
-
-```bash
-cargo run --example ./crates/mqtt/v3/01_basic_publish_subscribe
-cargo run --example ./crates/mqtt/v3/02_serialization_formats
-cargo run --example ./crates/mqtt/v3/03_basic_publish_framed_msg
-```
-
-### Testing
-
-Run the test suite:
-
-```bash
-# Unit tests
-cargo test --lib
-
-# All tests
-cargo test --all
-
-# With output
-cargo test -- --nocapture
-```
-
-#### Troubleshooting
-
-#### Connection Refused
-
-```
-Error: Connection refused (os error 111)
-```
-
-**Solution**: Verify broker is running and host/port are correct.
-
-```bash
-# Test connectivity
-telnet localhost 1883
-```
-
-#### TLS Certificate Validation Failed
-
-```
-Error: TLS handshake failed
-```
-
-**Solution**: Verify CA certificate path and format (must be PEM).
-
-```bash
-# Inspect certificate
-openssl x509 -in ca.pem -text -noout
-
-# Verify format
-file ca.pem  # Should be: PEM certificate
-```
-
-#### Message Too Large
-
-```
-Error: Serialization error: message too large
-```
-
-**Solution**: Reduce data size or increase `max_packet_size` in config.
-
-```rust
-config.max_packet_size = Some(262144);  // 256KB
-```
-
-#### High CPU Usage
-
-**Solution**: Enable compression, reduce publish rate, or profile with `perf`.
-
-```rust
-let config = SerializationConfig {
-    format: SerializationFormat::MessagePack,
-    compression: CompressionType::Zstd,
-    compression_threshold: 512,
-};
-```
-
-#### Memory Growth
-
-**Solution**: Check for message buffering or subscription memory leaks.
-
-```bash
-# Monitor memory
-watch -n 1 'ps aux | grep mqtt'
-
-# Profile with valgrind
-valgrind --leak-check=full ./target/debug/your_app
-```
-
-
-### Acknowledgments
-
-Built on top of the excellent [rumqttc](https://github.com/bytebeamio/rumqttc) library, which provides the underlying MQTT protocol implementation.
-
-### Support
-
-- **Examples**: See `/examples` directory
-
-### Changelog
-
-#### v0.1.0 (Initial Release)
-
-- Core MQTT functionality with automatic reconnection
-- Multiple serialization formats (JSON, MessagePack, CBOR)
-- Compression support (Gzip, Zstd)
-- TLS/SSL with mutual authentication
-- Comprehensive error handling
-- Connection state monitoring
-- Configuration management with TOML support
-
-#### Roadmap
-
-Planned for future releases:
-
-- Message buffering with persistence
-- Metrics collection (Prometheus integration)
-- Circuit breaker pattern
-- Multiple broker failover
-- Advanced diagnostics and debugging tools
-- Performance optimizations
-
----
+Run with `MQTT_PASSWORD` in the environment. systemd units can supply it
+through `EnvironmentFile=` or a credential; containers through `-e` or a
+secret mount.

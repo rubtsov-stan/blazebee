@@ -16,6 +16,8 @@ all: docker
 
 docker: $(addprefix docker-,$(TYPES))
 
+# Build and push one variant: make docker-standard
+
 docker-%:
 	@echo "$(GREEN)Building and pushing $(IMAGE_NAME):$* (multi-arch)$(NC)"
 	docker buildx build \

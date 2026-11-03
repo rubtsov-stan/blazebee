@@ -1,286 +1,122 @@
-use std::{
-    collections::HashSet,
-    process,
-    sync::{Arc, OnceLock},
-};
+use std::{process::ExitCode, time::Duration};
 
 use blazebee::{
     config::Config,
-    core::{collectors::registry::Collectors, executor::Executor, readiness::Readiness},
-    logger::LoggerManager,
-    print_error, print_info,
+    core::{collectors, scheduler::Scheduler},
+    logger,
 };
-use console::{style, Term};
-use tracing::{debug, error, info};
+use blazebee_mqtt_v3::Transport;
+use tracing::{error, info};
 
-static CONFIG: OnceLock<Config> = OnceLock::new();
+/// Time allowed for the final `offline` status and DISCONNECT to reach the broker.
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub fn config() -> &'static Config {
-    CONFIG.get_or_init(|| {
-        Config::new().unwrap_or_else(|e| {
-            print_error!("{}", e);
-            process::exit(1);
-        })
-    })
-}
-
-fn print_banner() {
-    const LOGO: &[&str] = &[
-        "██████╗ ██╗      █████╗ ███████╗███████╗██████╗ ███████╗███████╗",
-        "██╔══██╗██║     ██╔══██╗╚══███╔╝██╔════╝██╔══██╗██╔════╝██╔════╝",
-        "██████╔╝██║     ███████║  ███╔╝ █████╗  ██████╔╝█████╗  █████╗  ",
-        "██╔══██╗██║     ██╔══██║ ███╔╝  ██╔══╝  ██╔══██╗██╔══╝  ██╔══╝  ",
-        "██████╔╝███████╗██║  ██║███████╗███████╗██████╔╝███████╗███████╗",
-        "╚═════╝ ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═════╝ ╚══════╝╚══════╝",
-    ];
-
-    let term = Term::stdout();
-    let term_width = term.size().1 as usize;
-
-    let logo_width = LOGO.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-
-    let box_width = logo_width;
-    let total_width = box_width + 4;
-
-    let outer_pad = term_width.saturating_sub(total_width) / 2;
-
-    let pad = " ".repeat(outer_pad);
-    let horizontal = "═".repeat(box_width + 2);
-
-    term.write_line(&format!("{pad}╔{horizontal}╗")).ok();
-
-    for line in LOGO {
-        let line_width = line.chars().count();
-        let inner_pad = box_width.saturating_sub(line_width);
-        let left = inner_pad / 2;
-        let right = inner_pad - left;
-
-        term.write_line(&format!(
-            "{pad}║ {}{}{} ║",
-            " ".repeat(left),
-            style(line).bold(),
-            " ".repeat(right),
-        ))
-        .ok();
-    }
-
-    term.write_line(&format!("{pad}╚{horizontal}╝")).ok();
-    term.write_line("").ok();
-}
-
-fn print_collectors_table(enabled: &[&str], available: &[&'static str]) {
-    use std::collections::HashSet;
-
-    let enabled_set: HashSet<&str> = enabled.iter().copied().collect();
-
-    let table: String = available
-        .iter()
-        .map(|&collector| {
-            let status = if enabled_set.contains(collector) {
-                format!("{} {}", style("+").green(), style(collector).bold())
-            } else {
-                format!("{} {}", style("-").dim(), style(collector).dim())
-            };
-            format!("    {}", status)
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    print_info!("Available collectors:\n{}", table);
-}
-
-pub fn print_config_toml<T>(config: &T)
-where
-    T: serde::Serialize,
-{
-    let toml = toml::to_string_pretty(config)
-        .unwrap_or_else(|_| "<failed to serialize config>".to_string());
-
-    println!("{}", format_toml(&toml));
-}
-
-#[inline]
-fn ui_debug<F: FnOnce()>(f: F) {
-    if cfg!(debug_assertions) && tracing::level_enabled!(tracing::Level::DEBUG) {
-        f();
-    }
-}
-
-fn format_toml(input: &str) -> String {
-    input
-        .lines()
-        .map(|line| {
-            if line.starts_with('[') {
-                console::style(line).cyan().bold().to_string()
-            } else if let Some((k, v)) = line.split_once('=') {
-                format!(
-                    "{} = {}",
-                    console::style(k.trim()).yellow().bold(),
-                    console::style(v.trim()).green()
-                )
-            } else {
-                line.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    print_banner();
-    let cfg = config();
-    let mut logger_manager = LoggerManager::new(cfg.logger.clone()).unwrap_or_else(|e| {
-        print_error!("Failed to setup Log Manager: {}", e);
-        process::exit(1);
-    });
-    info!("Starting blazebee version {}...", env!("CARGO_PKG_VERSION"));
-    logger_manager.init().unwrap_or_else(|e| {
-        print_error!("Failed to init Log Manager: {}", e);
-        process::exit(1);
-    });
-    ui_debug(|| {
-        print_config_toml(cfg);
-    });
-    info!("Log level: {}", cfg.logger.level);
-    let enabled_names = cfg.metrics.collectors.enabled_names();
-    let available_list = Collectors::list();
-    let enabled_refs: Vec<&str> = enabled_names.iter().map(|s| s.as_ref()).collect();
-    let available_set: HashSet<&str> = available_list.iter().copied().collect();
-    let missing: Vec<&str> = enabled_refs
-        .iter()
-        .filter(|&&name| !available_set.contains(name))
-        .copied()
-        .collect();
-
-    if !missing.is_empty() {
-        print_error!(
-            "{}",
-            style("Required collector(s) not available!").red().bold()
-        );
-        for name in missing {
-            println!("  -> {}", style(name).red().bold());
+fn main() -> ExitCode {
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("blazebee: {err}");
+            return ExitCode::from(2);
         }
-        print_collectors_table(&[], &available_list[..]);
-        std::process::exit(1);
+    };
+    if let Err(err) = logger::init(&config.logger) {
+        eprintln!("blazebee: {err}");
+        return ExitCode::from(2);
     }
 
-    let readiness = Readiness::default();
-
-    let (publisher, instance): (Arc<dyn blazebee::core::executor::Publisher>, _) = {
-        #[cfg(feature = "blazebee-mqtt-v3")]
-        {
-            info!("MQTT transport enabled");
-            info!("Starting MQTT client...");
-
-            let manager = blazebee_mqtt_v3::MqttManager::from_config(cfg.transport.clone())
-                .unwrap_or_else(|e| {
-                    error!("Failed to create MqttManager: {}", e);
-                    process::exit(1);
-                });
-
-            let instance = manager.build_and_start().await.unwrap_or_else(|e| {
-                error!("Failed to create build and start MQTT kernel: {}", e);
-                process::exit(1);
-            });
-
-            info!("MQTT client started");
-
-            instance.start_monitoring().await.unwrap_or_else(|e| {
-                error!("Failed to start monitoring: {}", e);
-                process::exit(1);
-            });
-
-            info!("State monitoring started");
-
-            readiness
-                .start_listening(instance.supervisor().state_receiver().clone())
-                .await;
-
-            for collector in &cfg.metrics.collectors.enabled {
-                use blazebee::core::collectors::registry::Collectors;
-
-                let topic = &collector.metadata.topic;
-                match Collectors::get(&collector.name) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Collector '{}' not found in registry", &collector.name);
-                        debug!(
-                            "Collector '{}' not found in registry: details: {:#?}",
-                            &collector.name, e
-                        );
-                        instance.cancel_token().cancel();
-                        process::exit(1);
-                    }
-                }
-                if let Err(e) = instance.subscribe(topic).await {
-                    error!("Failed to subscribe to metric topic '{}': {}", topic, e);
-                } else {
-                    debug!("Subscribed to retain topic: {}", topic);
-                }
-            }
-
-            let ser_config = cfg.transport.serialization.clone().unwrap().into_config();
-
-            info!(
-                "MQTT Publisher configured: {} format + {} compression (threshold: {} bytes)",
-                ser_config.format, ser_config.compression, ser_config.compression_threshold
-            );
-
-            let mqtt_publisher = blazebee_mqtt_v3::Publisher::with_config(
-                Arc::new(instance.clone()),
-                &ser_config,
-                &cfg.transport.base_topic,
-            );
-
-            (
-                Arc::new(mqtt_publisher) as Arc<dyn blazebee::core::executor::Publisher>,
-                instance,
-            )
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            error!(%err, "failed to start runtime");
+            return ExitCode::from(1);
         }
+    };
+    runtime.block_on(run(config))
+}
 
-        #[cfg(not(feature = "blazebee-mqtt-v3"))]
-        {
-            info!("Running without MQTT (noop publisher)");
-            struct NoopPublisher;
-            #[async_trait::async_trait]
-            impl blazebee::core::executor::Publisher for NoopPublisher {
-                async fn publish(
-                    &self,
-                    _data: &(dyn erased_serde::Serialize + Send + Sync),
-                    _meta: &blazebee::config::metrics::CollectorMetadata,
-                ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-                    Ok(())
-                }
-            }
-            let noop = Arc::new(NoopPublisher) as Arc<dyn blazebee::core::executor::Publisher>;
-            (noop, std::mem::MaybeUninit::uninit().assume_init())
+async fn run(config: Config) -> ExitCode {
+    info!(
+        version = env!("CARGO_PKG_VERSION"),
+        config = %config.source().display(),
+        collectors = ?config.metrics.enabled_names(),
+        interval_s = config.metrics.collection_interval,
+        "starting blazebee"
+    );
+
+    let transport = match Transport::connect(&config.transport) {
+        Ok(transport) => transport,
+        Err(err) => {
+            error!(%err, "cannot start MQTT transport");
+            return ExitCode::from(1);
         }
     };
 
-    let executor = Executor::new(publisher, Arc::from(cfg.metrics.clone()), readiness);
+    let entries = config
+        .metrics
+        .collectors
+        .enabled
+        .iter()
+        .map(|entry| {
+            // Names were validated against the registry while loading the configuration.
+            let descriptor = collectors::find(&entry.name).expect("validated collector name");
+            (
+                descriptor.name,
+                (descriptor.build)(),
+                entry.metadata.clone(),
+            )
+        })
+        .collect();
+    let scheduler = Scheduler::new(
+        Duration::from_secs(config.metrics.collection_interval),
+        entries,
+        transport.publisher(),
+        transport.state(),
+    );
 
-    info!("Starting metrics collection executor...");
-
-    tokio::select! {
-        _ = executor.run() => {
-            error!("Executor unexpectedly finished");
+    let exit = tokio::select! {
+        biased;
+        signal = shutdown_signal() => {
+            info!(signal, "shutting down");
+            ExitCode::SUCCESS
         }
-        _ = tokio::signal::ctrl_c() => {
-            info!("Received Ctrl+C — initiating graceful shutdown...");
+        _ = scheduler.run() => {
+            error!("collection stopped because the broker connection failed permanently");
+            ExitCode::from(1)
+        }
+    };
 
-            #[cfg(feature = "blazebee-mqtt-v3")]
-            {
-                instance.shutdown().await.unwrap_or_else(|e| {
-                    error!("Error during MQTT shutdown: {}", e);
-                    process::exit(1);
-                });
-                debug!("Cancellation token triggered — MQTT disconnecting...");
-                tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-            }
-
-            info!("Shutdown complete");
+    if let Err(err) = transport.shutdown(SHUTDOWN_TIMEOUT).await {
+        if exit == ExitCode::SUCCESS {
+            error!(%err, "MQTT shutdown failed");
         }
     }
-    Ok(())
+    info!("stopped");
+    exit
+}
+
+#[cfg(unix)]
+async fn shutdown_signal() -> &'static str {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let mut term = match signal(SignalKind::terminate()) {
+        Ok(term) => term,
+        Err(err) => {
+            error!(%err, "cannot install SIGTERM handler; only SIGINT will stop the process");
+            tokio::signal::ctrl_c().await.ok();
+            return "SIGINT";
+        }
+    };
+    tokio::select! {
+        _ = term.recv() => "SIGTERM",
+        _ = tokio::signal::ctrl_c() => "SIGINT",
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() -> &'static str {
+    tokio::signal::ctrl_c().await.ok();
+    "SIGINT"
 }

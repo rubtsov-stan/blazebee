@@ -1,190 +1,114 @@
-// ============================================================================
-// logger.rs
-// ============================================================================
-//! Centralized logging configuration and initialization manager.
-//!
-//! The `LoggerManager` validates logging configuration and initializes
-//! the global `tracing` subscriber with appropriate layers for console
-//! and/or systemd journald output. It supports multiple log formats,
-//! ANSI coloring, thread/span information, and environment-based filtering.
+//! `tracing` subscriber setup for console and journald output.
 
-use std::io;
+use std::{fmt, io, time::SystemTime};
 
-use thiserror::Error;
-use tracing::instrument;
-use tracing_subscriber::{fmt, fmt::format::FmtSpan, prelude::*, EnvFilter, Layer};
-use validator::{Validate, ValidationErrors};
-
-use crate::{
-    config::logger::{ConsoleConfig, LogFormat, LoggerConfig},
-    print_info, print_warn,
+use tracing_subscriber::{
+    fmt::{
+        format::{FmtSpan, Writer},
+        time::FormatTime,
+    },
+    prelude::*,
+    EnvFilter, Layer, Registry,
 };
 
-/// Errors that can occur during logger configuration or initialization.
-#[derive(Error, Debug)]
+use crate::config::logger::{ConsoleConfig, LogFormat, LoggerConfig, TimestampFormat};
+
+#[derive(Debug, thiserror::Error)]
 pub enum LoggerError {
-    /// General initialization failure with a descriptive message.
-    #[error("Logger initialization error: {0}")]
-    InitializationError(String),
-
-    /// Validation errors from the logger configuration struct.
-    #[error("Logger configuration validation error: {0}")]
-    ValidationError(#[from] ValidationErrors),
-
-    /// Failure to parse an environment-based filter directive.
-    #[error("Environment filter error: {0}")]
-    EnvFilterError(#[from] tracing_subscriber::filter::FromEnvError),
-
-    /// IO error, typically during journald socket operations.
-    #[error("IO error: {0}")]
-    IoError(#[from] io::Error),
-
-    /// No output layers were successfully configured.
-    #[error("No logging layers were configured or successfully initialized")]
-    NoLayersConfigured,
-
-    /// Journald logger failed to initialize while console output is disabled.
-    #[error(
-        "Failed to initialize journald logger, and console logger is enabled. Please check your configuration."
-    )]
-    JournaldFailedWithConsoleEnabled,
+    #[error("invalid log level '{level}': {source}")]
+    Level {
+        level: String,
+        #[source]
+        source: tracing_subscriber::filter::ParseError,
+    },
+    #[error("journald is the only configured output and it is unavailable: {0}")]
+    Journald(#[source] io::Error),
+    #[error("no log output is enabled")]
+    NoOutput,
+    #[error("logger already initialized")]
+    AlreadySet,
 }
 
-/// Manages logging configuration and global subscriber initialization.
-pub struct LoggerManager {
-    config: LoggerConfig,
+/// Installs the global subscriber. `RUST_LOG` takes precedence over
+/// `config.level` so operators can raise verbosity without editing the file.
+pub fn init(config: &LoggerConfig) -> Result<(), LoggerError> {
+    let filter = match std::env::var("RUST_LOG") {
+        Ok(directives) if !directives.is_empty() => {
+            EnvFilter::try_new(&directives).map_err(|source| LoggerError::Level {
+                level: directives,
+                source,
+            })?
+        }
+        _ => EnvFilter::try_new(&config.level).map_err(|source| LoggerError::Level {
+            level: config.level.clone(),
+            source,
+        })?,
+    };
+
+    let console = config
+        .console
+        .enabled
+        .then(|| console_layer(&config.console, config.timestamp_format));
+
+    let journald = if config.journald.enabled {
+        match tracing_journald::layer() {
+            Ok(layer) => Some(layer.with_syslog_identifier(config.journald.identifier.clone())),
+            Err(err) if console.is_some() => {
+                eprintln!("blazebee: journald unavailable ({err}); logging to console only");
+                None
+            }
+            Err(err) => return Err(LoggerError::Journald(err)),
+        }
+    } else {
+        None
+    };
+
+    if console.is_none() && journald.is_none() {
+        return Err(LoggerError::NoOutput);
+    }
+
+    Registry::default()
+        .with(console)
+        .with(journald)
+        .with(filter)
+        .try_init()
+        .map_err(|_| LoggerError::AlreadySet)
 }
 
-impl LoggerManager {
-    /// Creates a new `LoggerManager` and validates the provided configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - The logging configuration to use.
-    ///
-    /// # Errors
-    ///
-    /// Returns `LoggerError::ValidationError` if configuration validation fails.
-    pub fn new(config: LoggerConfig) -> Result<Self, LoggerError> {
-        config.validate()?;
+type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync>;
 
-        Ok(LoggerManager { config })
+fn console_layer(config: &ConsoleConfig, timestamps: TimestampFormat) -> BoxedLayer {
+    let span_events = if config.show_spans {
+        FmtSpan::CLOSE
+    } else {
+        FmtSpan::NONE
+    };
+    let base = tracing_subscriber::fmt::layer()
+        .with_target(config.show_target)
+        .with_thread_ids(config.show_thread_ids)
+        .with_span_events(span_events)
+        .with_ansi(config.ansi_colors)
+        .with_timer(Timer(timestamps))
+        .with_writer(io::stdout);
+    match config.format {
+        LogFormat::Compact => base.compact().boxed(),
+        LogFormat::Pretty => base.pretty().boxed(),
+        LogFormat::Json => base.json().boxed(),
     }
-    /// Initializes the global `tracing` subscriber with configured layers.
-    ///
-    /// This method builds console and/or journald layers based on the configuration
-    /// and registers them with the global registry. It must be called once at
-    /// application startup before any tracing macros are used.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no valid layers can be created or if journald initialization
-    /// fails when it is the only enabled output.
-    #[instrument(skip(self))]
-    pub fn init(&mut self) -> Result<(), LoggerError> {
-        let mut layers = Vec::new();
-        match &self.config.console {
-            Some(console_config) if console_config.enabled => {
-                let console_filter = EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| EnvFilter::new(&self.config.level));
+}
 
-                let console_layer = self.init_console_logger(console_config, console_filter)?;
-                layers.push(console_layer);
+struct Timer(TimestampFormat);
+
+impl FormatTime for Timer {
+    fn format_time(&self, w: &mut Writer<'_>) -> fmt::Result {
+        match self.0 {
+            TimestampFormat::Rfc3339 => tracing_subscriber::fmt::time::SystemTime.format_time(w),
+            TimestampFormat::Unix => {
+                let now = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default();
+                write!(w, "{}.{:06}", now.as_secs(), now.subsec_micros())
             }
-            _ => {}
         }
-        // Journald layer (Linux/systemd only)
-        match &self.config.journald {
-            Some(journald_config) if journald_config.enabled => {
-                let journald_filter = EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| EnvFilter::new(&self.config.level));
-
-                match self.init_journald_logger(journald_filter) {
-                    Ok(journald_layer) => {
-                        layers.push(journald_layer);
-                        print_info!(
-                            "Systemd journald logger initialized with identifier: {}",
-                            journald_config.identifier
-                        );
-                    }
-                    Err(e) => {
-                        print_warn!("Failed to initialize systemd journald logger: {}", e);
-                        if self.config.console.as_ref().is_some_and(|c| c.enabled) {
-                            return Err(LoggerError::JournaldFailedWithConsoleEnabled);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-        // Ensure at least one layer is available
-        if layers.is_empty() {
-            print_warn!("No logging layers were initialized. Please check your configuration.");
-            return Err(LoggerError::NoLayersConfigured);
-        }
-        tracing_subscriber::registry().with(layers).init();
-        Ok(())
-    }
-    /// Constructs a console output layer according to the provided configuration.
-    fn init_console_logger(
-        &self,
-        config: &ConsoleConfig,
-        filter: EnvFilter,
-    ) -> Result<Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync>, LoggerError> {
-        let writer = io::stdout;
-        let layer = match config.format {
-            LogFormat::Json => fmt::layer()
-                .json()
-                .with_target(config.show_target)
-                .with_thread_ids(config.show_thread_ids)
-                .with_span_events(if config.show_spans {
-                    FmtSpan::CLOSE
-                } else {
-                    FmtSpan::NONE
-                })
-                .with_ansi(config.ansi_colors)
-                .with_writer(writer)
-                .with_filter(filter)
-                .boxed(),
-            LogFormat::Pretty => fmt::layer()
-                .pretty()
-                .with_target(config.show_target)
-                .with_thread_ids(config.show_thread_ids)
-                .with_span_events(if config.show_spans {
-                    FmtSpan::CLOSE
-                } else {
-                    FmtSpan::NONE
-                })
-                .with_ansi(config.ansi_colors)
-                .with_writer(writer)
-                .with_filter(filter)
-                .boxed(),
-            LogFormat::Compact => fmt::layer()
-                .compact()
-                .with_target(config.show_target)
-                .with_thread_ids(config.show_thread_ids)
-                .with_span_events(if config.show_spans {
-                    FmtSpan::CLOSE
-                } else {
-                    FmtSpan::NONE
-                })
-                .with_ansi(config.ansi_colors)
-                .with_writer(writer)
-                .with_filter(filter)
-                .boxed(),
-        };
-
-        Ok(layer)
-    }
-
-    /// Constructs a journald output layer.
-    ///
-    /// This uses the `tracing_journald` crate and is only compiled on Unix platforms.
-    fn init_journald_logger(
-        &self,
-        filter: EnvFilter,
-    ) -> Result<Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync>, LoggerError> {
-        let journald_layer = tracing_journald::layer()?;
-        Ok(journald_layer.with_filter(filter).boxed())
     }
 }

@@ -1,105 +1,134 @@
-# BlazeBee: Lightning-Fast System Metrics Collector
+# BlazeBee
 
 [![License](https://img.shields.io/github/license/rubtsov-stan/blazebee)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.86+-orange.svg)](https://www.rust-lang.org/)
-[![MQTT](https://img.shields.io/badge/mqtt-v3-blue)](https://mqtt.org/)
-[![Docker](https://img.shields.io/badge/docker-automated-blue)](https://hub.docker.com/r/blazebee/blazebee)
+[![MQTT](https://img.shields.io/badge/mqtt-3.1.1-blue)](https://mqtt.org/)
 
-<div align="center" style="background-color: transparent;">
-<pre>
-██████╗ ██╗      █████╗ ███████╗███████╗██████╗ ███████╗███████╗
-██╔══██╗██║     ██╔══██╗╚══███╔╝██╔════╝██╔══██╗██╔════╝██╔════╝
-██████╔╝██║     ███████║  ███╔╝ █████╗  ██████╔╝█████╗  █████╗  
-██╔══██╗██║     ██╔══██║ ███╔╝  ██╔══╝  ██╔══██╗██╔══╝  ██╔══╝  
-██████╔╝███████╗██║  ██║███████╗███████╗██████╔╝███████╗███████╗
-╚═════╝ ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═════╝ ╚══════╝╚══════╝
-</pre>
-</div>
+BlazeBee is a small Linux agent that samples kernel interfaces (`/proc`,
+`/sys`, `adjtimex`) at a fixed interval and publishes the raw counters as
+JSON, MessagePack or CBOR messages to an MQTT broker. It is built for
+long-running, unattended operation on servers, edge devices and containers.
 
-> **Fast, lightweight, and reliable** - The Rust-powered system metrics collector that sends real-time data to your MQTT infrastructure.
+- One thread, no locks: a single-threaded Tokio runtime drives the sampling
+  loop, the MQTT event loop and signal handling.
+- Bounded memory: samples are never buffered beyond a fixed-size queue;
+  collection pauses while the broker is unreachable and resumes with fresh
+  values.
+- Reconnects forever with capped, jittered backoff; only unrecoverable errors
+  (rejected credentials, TLS misconfiguration) stop the process.
+- Retained `<base_topic>/status` topic (`online`/`offline`) backed by an MQTT
+  last will, so consumers can tell a silent agent from a dead one.
+- Clean shutdown on `SIGTERM` and `SIGINT`: final status, DISCONNECT, exit 0.
+- 27 collectors, each behind a Cargo feature; three presets (`minimal`,
+  `standard`, `large`) for binaries, Debian packages and container images.
 
-## Why BlazeBee?
+## Install
 
-BlazeBee is a next-generation system metrics collector designed for the modern infrastructure landscape. Built with Rust for memory safety and performance, it efficiently gathers Linux system metrics and publishes them via MQTT, providing real-time visibility into your system's performance.
-
-### Key Advantages
-
-- **Lightning Fast**: Written in Rust for optimal performance and minimal overhead
-- **Modular Design**: Enable only the collectors you need, reducing resource consumption
-- **MQTT Native**: Built-in MQTT integration with configurable QoS and retention
-- **Lightweight**: Minimal resource footprint suitable for resource-constrained environments
-- **Flexible**: Multiple build types (minimal, standard, large) for different use cases
-- **Cross-Platform**: Runs on AMD64 and ARM64 architectures with Docker support
-
-## Perfect For
-
-- **DevOps Teams**: Real-time infrastructure monitoring with minimal setup
-- **IoT Deployments**: Lightweight monitoring for resource-constrained devices
-- **Edge Computing**: Distributed monitoring with MQTT-based data aggregation
-- **System Administrators**: Comprehensive system metrics without complexity
-- **Cloud-Native Environments**: Containerized deployments with Kubernetes support
-
-### Build from Source
+**Debian package** (amd64, arm64; variants `minimal`, `standard`, `large`):
 
 ```bash
-git clone https://github.com/rubtsov-stan/blazebee
-cd blazebee
-make docker TYPE=standard
+sudo apt install ./blazebee_<version>_<arch>.deb
+sudo editor /etc/blazebee/config.toml      # set the broker address
+sudo systemctl restart blazebee
+journalctl -u blazebee -f
 ```
 
-## Supported Metrics
+The service runs under a dynamic unprivileged user with a strict systemd
+sandbox; see `contrib/systemd/blazebee.service`.
 
-BlazeBee offers a comprehensive set of system metrics through its modular collector system:
+**Container** (image variants `minimal`, `latest` = `standard`, `large`):
 
-### Core System Metrics
-- **CPU**: Usage, frequency, load averages, and scheduling statistics
-- **Memory**: RAM usage, swap statistics, and memory pressure
-- **Disk**: Storage space, I/O statistics, and filesystem metrics
-- **Network**: Interface statistics, bandwidth, and connection metrics
-- **Processes**: Process counts, system load, and process states
-- **Uptime**: System uptime and boot time information
+```bash
+docker run --rm --network host \
+  -v "$PWD/config.toml:/etc/blazebee/config.toml:ro" \
+  rubtsovs/blazebee:latest
+```
 
-### Advanced Metrics
-- **Thermal**: Temperature sensors and thermal zones
-- **Power**: Power management and battery statistics
-- **Pressure**: Pressure stall information for CPU, memory, and I/O
-- **Systemd**: Service states and unit information
-- **NTP**: Time synchronization status and offset
-- **Hardware**: Hardware monitoring via HWMON sensors
-- **Network Stats**: ARP tables, netstat, sockstat, and connection tracking
-- **File Descriptors**: Usage statistics and limits
+**From source** (Rust 1.86 or newer):
 
-## Architecture
+```bash
+cargo build --release --no-default-features --features standard
+BLAZEBEE_CONFIG=config.example.toml ./target/release/blazebee
+```
 
-BlazeBee follows a modular architecture that separates concerns:
+## Configuration
 
-- **Configuration Layer**: TOML-based configuration with validation
-- **Collection Layer**: Modular collectors for different system metrics
-- **Transport Layer**: MQTT-based publishing with configurable serialization
-- **Execution Layer**: Async runtime for efficient metric collection
+`config.example.toml` documents every key. The file is located through
+`BLAZEBEE_CONFIG` or `/etc/blazebee/config.toml`; `${NAME}` references are
+replaced with environment variables, which keeps credentials out of the file:
 
-## Documentation
+```toml
+[transport]
+host = "broker.example.net"
+port = 8883
+base_topic = "blazebee"
+username = "blazebee"
+password = "${MQTT_PASSWORD}"
 
-Complete documentation is available at [blazebee.github.io/docs](https://rubtsov-stan.github.io/blazebee)
+[transport.tls]
+enabled = true                      # system trust store, or set ca_cert_path
 
-## Security & Reliability
+[metrics]
+collection_interval = 5
 
-- **TLS Support**: Encrypted MQTT connections for secure data transmission
-- **Authentication**: Username/password and certificate-based authentication
-- **Graceful Shutdown**: Proper cleanup on termination signals
-- **Error Isolation**: Collector failures don't affect other collectors
-- **Memory Safe**: Built with Rust to prevent memory-related vulnerabilities
+[[metrics.collectors.enabled]]
+name = "cpu"
+[metrics.collectors.enabled.metadata]
+topic = "metrics/cpu"
+qos = 0
+retain = true
+```
+
+Unknown keys and invalid values are rejected at startup with the key name in
+the error message.
+
+## Collectors
+
+| Preset     | Collectors                                                                 |
+|------------|----------------------------------------------------------------------------|
+| `minimal`  | `cpu`, `ram`, `disk`, `uptime`, `load_average`, `processes`                 |
+| `standard` | minimal + `network`, `netstat`, `sockstat`, `vmstat`, `filesystem`, `systemd`, `ntp` |
+| `large`    | standard + `arp`, `softnet`, `conntrack`, `ipvs`, `pressure`, `thermal`, `hwmon`, `entropy`, `filefd`, `schedstat`, `stat`, `power`, `edac`, `mdraid` |
+
+Every collector publishes raw kernel counters; rates are left to the
+consumer. Field-level documentation is in the [metrics reference][docs].
+
+## How it works
+
+```
+/proc, /sys ──▶ collectors ──▶ scheduler ──▶ publisher ──▶ rumqttc ──▶ broker
+                (parse)        (interval,     (encode,      (event loop,
+                               timeouts)     compress)     reconnect)
+```
+
+1. The configuration is loaded, expanded and validated.
+2. The transport connects in the background and reports its state through a
+   watch channel.
+3. Every `collection_interval` seconds, while the connection is up, the
+   scheduler runs each enabled collector (bounded to 10 s each), encodes the
+   sample and queues it without blocking. Failures are isolated per collector
+   and logged with rate limiting.
+4. On `SIGTERM`/`SIGINT` the scheduler stops, `offline` is published and the
+   connection is closed with a DISCONNECT packet.
+
+Details are in the [architecture document][docs].
+
+## Development
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --features large -- -D warnings
+cargo test --workspace --features large
+cargo bench --features large          # parser and encoder micro-benchmarks
+cargo deb --variant standard          # Debian package (cargo install cargo-deb)
+make docker-local-standard            # container image via buildx
+```
+
+Tests use real `/proc` snapshots from `tests/fixtures`; collectors reading
+`/sys` are tested against synthetic directory trees.
 
 ## License
 
-BlazeBee is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
+Apache License 2.0; see [LICENSE](LICENSE).
 
-## Acknowledgments
-
-BlazeBee wouldn't be possible without the excellent Rust ecosystem and the following libraries:
-
-- `rumqttc` - MQTT client implementation
-- `tokio` - Async runtime
-- `serde` - Serialization framework
-- `tracing` - Application-level tracing
----
+[docs]: https://rubtsov-stan.github.io/blazebee/
