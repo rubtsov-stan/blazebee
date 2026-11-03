@@ -150,11 +150,12 @@ priority = "optional"
 assets = [
     ["target/release/blazebee", "/usr/bin/blazebee", "755"],
     ["config.example.toml", "/etc/blazebee/config.toml", "644"],
-    ["contrib/systemd/blazebee.service", "/lib/systemd/system/blazebee.service", "644"],
 ]
 conf-files = ["/etc/blazebee/config.toml"]
 maintainer-scripts = "packaging/debian"
-systemd-units = { enable = true, unit-name = "blazebee" }
+# cargo-deb installs the unit from `unit-scripts` and generates the
+# enable/start snippets into the maintainer scripts.
+systemd-units = { enable = true, unit-name = "blazebee", unit-scripts = "contrib/systemd" }
 
 [package.metadata.deb.variants.minimal]
 features = ["minimal"]

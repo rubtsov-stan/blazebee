@@ -52,7 +52,7 @@ jobs:
       - name: Install and verify the unit
         run: |
           sudo apt-get install -y ./target/debian/*.deb
-          systemd-analyze verify /lib/systemd/system/blazebee.service
+          systemd-analyze verify blazebee.service
           # The unit is started by the package; it keeps retrying the
           # (absent) broker and must stay active.
           sleep 3

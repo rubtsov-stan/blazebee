@@ -19,7 +19,7 @@ The package installs:
 |----------------------------------------|---------|
 | `/usr/bin/blazebee`                    | binary |
 | `/etc/blazebee/config.toml`            | configuration (conffile, preserved on upgrade) |
-| `/lib/systemd/system/blazebee.service` | unit, enabled and started on install |
+| `/usr/lib/systemd/system/blazebee.service` | unit, enabled and started on install |
 
 Edit the configuration, at least `transport.host`, then restart:
 
