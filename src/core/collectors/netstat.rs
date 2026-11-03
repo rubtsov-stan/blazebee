@@ -3,12 +3,11 @@
 //! The file alternates a header line of names and a line of values for each
 //! protocol group.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector,
 };
 
 const PATH: &str = "/proc/net/netstat";
@@ -61,10 +60,9 @@ pub fn parse(content: &str) -> NetstatBuffer {
     NetstatBuffer { entries }
 }
 
-#[async_trait]
 impl Collector for NetstatCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?))) })
     }
 }
 

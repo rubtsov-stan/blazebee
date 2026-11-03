@@ -2,12 +2,11 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, next_field, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorResult,
 };
 
 const PATH: &str = "/proc/uptime";
@@ -44,14 +43,15 @@ pub fn parse(content: &str, now_unix: f64) -> CollectorResult<UptimeInfo> {
     })
 }
 
-#[async_trait]
 impl Collector for UptimeCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
-            .unwrap_or(0.0);
-        Ok(Box::new(parse(self.file.read()?, now)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            Ok(sample(parse(self.file.read()?, now)?))
+        })
     }
 }
 

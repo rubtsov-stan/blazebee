@@ -1,11 +1,10 @@
 //! Virtual memory counters from `/proc/vmstat`.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector,
 };
 
 const PATH: &str = "/proc/vmstat";
@@ -51,10 +50,9 @@ pub fn parse(content: &str) -> VmstatBuffer {
     VmstatBuffer { entries }
 }
 
-#[async_trait]
 impl Collector for VmstatCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?))) })
     }
 }
 

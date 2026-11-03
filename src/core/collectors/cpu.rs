@@ -1,11 +1,10 @@
 //! Per-CPU time counters from `/proc/stat`, in clock ticks (`USER_HZ`).
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, next_field, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorResult,
 };
 
 const PATH: &str = "/proc/stat";
@@ -99,10 +98,9 @@ pub fn parse(content: &str) -> CollectorResult<CpuBuffer> {
     Ok(CpuBuffer { stats })
 }
 
-#[async_trait]
 impl Collector for CpuCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 

@@ -8,7 +8,7 @@
 //! `collector-*` Cargo feature; the `minimal`, `standard` and `large` features
 //! are presets that enable groups of them.
 
-use async_trait::async_trait;
+use std::{future::Future, pin::Pin};
 
 pub mod error;
 pub mod procfs;
@@ -75,10 +75,17 @@ pub type CollectorResult<T> = Result<T, CollectorError>;
 /// One sample, ready to be serialized by the transport.
 pub type Sample = Box<dyn erased_serde::Serialize + Send>;
 
-#[async_trait]
+/// Future returned by [`Collector::collect`].
+pub type CollectFuture<'a> = Pin<Box<dyn Future<Output = CollectorResult<Sample>> + Send + 'a>>;
+
+/// Boxes a collector output as a [`Sample`]; keeps `collect` bodies short.
+pub fn sample<T: erased_serde::Serialize + Send + 'static>(value: T) -> Sample {
+    Box::new(value)
+}
+
 pub trait Collector: Send {
     /// Takes one sample. Called at most once per interval from a single task.
-    async fn collect(&mut self) -> CollectorResult<Sample>;
+    fn collect(&mut self) -> CollectFuture<'_>;
 }
 
 /// Registry entry: the configuration name and a constructor.

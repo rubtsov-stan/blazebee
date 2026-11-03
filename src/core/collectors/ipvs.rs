@@ -4,12 +4,11 @@
 //! hexadecimal, a blank line and two lines of per-second rates. Only the
 //! totals are reported.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, ProcFile},
-    Collector, CollectorError, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorError, CollectorResult,
 };
 
 const PATH: &str = "/proc/net/ip_vs_stats";
@@ -65,10 +64,9 @@ pub fn parse(content: &str) -> CollectorResult<IpvsStats> {
     })
 }
 
-#[async_trait]
 impl Collector for IpvsCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 

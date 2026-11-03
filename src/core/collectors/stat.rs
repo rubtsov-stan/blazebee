@@ -1,11 +1,10 @@
 //! Boot time, fork and interrupt totals from `/proc/stat`.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, next_field, ProcFile},
-    Collector, CollectorError, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorError, CollectorResult,
 };
 
 const PATH: &str = "/proc/stat";
@@ -51,10 +50,9 @@ pub fn parse(content: &str) -> CollectorResult<StatGlobalStats> {
     Ok(stats)
 }
 
-#[async_trait]
 impl Collector for StatCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 

@@ -1,11 +1,10 @@
 //! Socket usage from `/proc/net/sockstat`.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector,
 };
 
 const PATH: &str = "/proc/net/sockstat";
@@ -55,10 +54,9 @@ pub fn parse(content: &str) -> SockstatBuffer {
     SockstatBuffer { entries }
 }
 
-#[async_trait]
 impl Collector for SockstatCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?))) })
     }
 }
 

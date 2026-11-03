@@ -27,9 +27,8 @@ build is reported before anything starts.
 **Collectors** (`src/core/collectors`) implement one trait:
 
 ```rust
-#[async_trait]
 pub trait Collector: Send {
-    async fn collect(&mut self) -> CollectorResult<Sample>;
+    fn collect(&mut self) -> CollectFuture<'_>; // boxed future of CollectorResult<Sample>
 }
 ```
 

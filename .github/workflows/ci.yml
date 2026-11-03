@@ -53,4 +53,12 @@ jobs:
         run: |
           sudo apt-get install -y ./target/debian/*.deb
           systemd-analyze verify /lib/systemd/system/blazebee.service
-          blazebee || test $? -eq 2
+          # The unit is started by the package; it keeps retrying the
+          # (absent) broker and must stay active.
+          sleep 3
+          systemctl is-active blazebee
+          sudo systemctl stop blazebee
+          # Without a config file the binary must exit with status 2; with
+          # the packaged config it must run until SIGTERM (timeout exits 124).
+          BLAZEBEE_CONFIG=/nonexistent blazebee || test $? -eq 2
+          timeout -s TERM 3 blazebee || test $? -eq 124

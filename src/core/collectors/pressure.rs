@@ -1,11 +1,10 @@
 //! Pressure stall information from `/proc/pressure/{cpu,memory,io}`.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, parse as parse_num},
-    Collector, CollectorError, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorError, CollectorResult,
 };
 
 const RESOURCES: [(&str, &str); 3] = [
@@ -85,25 +84,26 @@ pub fn parse(metric_type: &str, path: &str, content: &str) -> CollectorResult<Pr
     Ok(stats)
 }
 
-#[async_trait]
 impl Collector for PressureCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        let mut stats = Vec::with_capacity(3);
-        let mut absent = 0;
-        for (metric_type, path) in RESOURCES {
-            self.buf.clear();
-            match super::procfs::read_into(std::path::Path::new(path), &mut self.buf) {
-                Ok(()) => stats.push(parse(metric_type, path, &self.buf)?),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => absent += 1,
-                Err(e) => return Err(CollectorError::read(path, e)),
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move {
+            let mut stats = Vec::with_capacity(3);
+            let mut absent = 0;
+            for (metric_type, path) in RESOURCES {
+                self.buf.clear();
+                match super::procfs::read_into(std::path::Path::new(path), &mut self.buf) {
+                    Ok(()) => stats.push(parse(metric_type, path, &self.buf)?),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => absent += 1,
+                    Err(e) => return Err(CollectorError::read(path, e)),
+                }
             }
-        }
-        if absent == RESOURCES.len() {
-            return Err(CollectorError::Unsupported(
-                "pressure stall information is not available (CONFIG_PSI or psi=1 missing)",
-            ));
-        }
-        Ok(Box::new(PressureBuffer { stats }))
+            if absent == RESOURCES.len() {
+                return Err(CollectorError::Unsupported(
+                    "pressure stall information is not available (CONFIG_PSI or psi=1 missing)",
+                ));
+            }
+            Ok(sample(PressureBuffer { stats }))
+        })
     }
 }
 

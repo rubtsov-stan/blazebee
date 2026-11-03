@@ -3,12 +3,11 @@
 //! The kernel reports sectors in 512-byte units regardless of the device's
 //! logical block size; byte fields below are converted accordingly.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, next_field, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorResult,
 };
 
 const PATH: &str = "/proc/diskstats";
@@ -90,10 +89,9 @@ pub fn parse(content: &str) -> CollectorResult<DiskBuffer> {
     Ok(DiskBuffer { stats })
 }
 
-#[async_trait]
 impl Collector for DiskCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 

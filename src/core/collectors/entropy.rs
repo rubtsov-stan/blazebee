@@ -2,10 +2,9 @@
 
 use std::path::Path;
 
-use async_trait::async_trait;
 use serde::Serialize;
 
-use super::{procfs::read_number, Collector, CollectorResult, Sample};
+use super::{procfs::read_number, sample, CollectFuture, Collector};
 
 const PATH: &str = "/proc/sys/kernel/random/entropy_avail";
 
@@ -18,10 +17,11 @@ pub struct EntropyStats {
 #[derive(Default)]
 pub struct EntropyCollector;
 
-#[async_trait]
 impl Collector for EntropyCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        let available_entropy = read_number(Path::new(PATH), "entropy_avail")?;
-        Ok(Box::new(EntropyStats { available_entropy }))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move {
+            let available_entropy = read_number(Path::new(PATH), "entropy_avail")?;
+            Ok(sample(EntropyStats { available_entropy }))
+        })
     }
 }

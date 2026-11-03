@@ -4,12 +4,11 @@
 //! tasks, time tasks spent waiting on the run queue (both in nanoseconds),
 //! and the number of timeslices run.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, parse as parse_num, ProcFile},
-    Collector, CollectorError, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorError, CollectorResult,
 };
 
 const PATH: &str = "/proc/schedstat";
@@ -67,10 +66,9 @@ pub fn parse(content: &str) -> CollectorResult<SchedstatBuffer> {
     Ok(SchedstatBuffer { stats })
 }
 
-#[async_trait]
 impl Collector for SchedstatCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 

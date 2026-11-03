@@ -6,12 +6,11 @@
 //!       [=>...................]  recovery =  5.3% (51800064/976630272) finish=77.1min speed=199875K/sec
 //! ```
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector,
 };
 
 const PATH: &str = "/proc/mdstat";
@@ -139,10 +138,9 @@ pub fn parse(content: &str) -> MdRaidBuffer {
     MdRaidBuffer { stats }
 }
 
-#[async_trait]
 impl Collector for MdRaidCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?))) })
     }
 }
 
