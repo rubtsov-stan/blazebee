@@ -2,10 +2,11 @@
 
 use std::{fs, path::Path};
 
-use async_trait::async_trait;
 use serde::Serialize;
 
-use super::{procfs::read_trimmed, Collector, CollectorError, CollectorResult, Sample};
+use super::{
+    procfs::read_trimmed, sample, CollectFuture, Collector, CollectorError, CollectorResult,
+};
 
 const ROOT: &str = "/sys/class/power_supply";
 
@@ -75,10 +76,9 @@ pub fn read_supplies(root: &Path) -> CollectorResult<PowerBuffer> {
     Ok(PowerBuffer { stats })
 }
 
-#[async_trait]
 impl Collector for PowerCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(read_supplies(Path::new(ROOT))?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(read_supplies(Path::new(ROOT))?)) })
     }
 }
 

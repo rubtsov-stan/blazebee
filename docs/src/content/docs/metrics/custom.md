@@ -11,12 +11,11 @@ takes a module, a registry entry and a Cargo feature.
 Create `src/core/collectors/mything.rs`:
 
 ```rust
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, next_field, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorResult,
 };
 
 const PATH: &str = "/proc/mything";
@@ -42,10 +41,9 @@ pub fn parse(content: &str) -> CollectorResult<MyThing> {
     Ok(MyThing { value: next_field(&mut f, PATH, "value")? })
 }
 
-#[async_trait]
 impl Collector for MyThingCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 ```

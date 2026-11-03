@@ -8,14 +8,13 @@
 
 use std::{collections::HashMap, ffi::CString, io, mem::MaybeUninit, time::Duration};
 
-use async_trait::async_trait;
 use serde::Serialize;
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
 use super::{
     procfs::{fields, unescape_mount_field, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector,
 };
 
 const PATH: &str = "/proc/self/mounts";
@@ -210,31 +209,32 @@ impl FilesystemCollector {
     }
 }
 
-#[async_trait]
 impl Collector for FilesystemCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        let mounts = parse_mounts(self.mounts.read()?);
-        let mut stats = Vec::with_capacity(mounts.len());
-        for mount in mounts {
-            match self.usage(&mount.mount_point).await {
-                Some(Ok(u)) => stats.push(FilesystemStats {
-                    device: mount.device,
-                    mount_point: mount.mount_point,
-                    fs_type: mount.fs_type,
-                    total_bytes: u.total_bytes,
-                    used_bytes: u.used_bytes,
-                    available_bytes: u.available_bytes,
-                    total_inodes: u.total_inodes,
-                    used_inodes: u.used_inodes,
-                    available_inodes: u.available_inodes,
-                }),
-                Some(Err(err)) => {
-                    debug!(mount_point = %mount.mount_point, %err, "statvfs failed; skipping")
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move {
+            let mounts = parse_mounts(self.mounts.read()?);
+            let mut stats = Vec::with_capacity(mounts.len());
+            for mount in mounts {
+                match self.usage(&mount.mount_point).await {
+                    Some(Ok(u)) => stats.push(FilesystemStats {
+                        device: mount.device,
+                        mount_point: mount.mount_point,
+                        fs_type: mount.fs_type,
+                        total_bytes: u.total_bytes,
+                        used_bytes: u.used_bytes,
+                        available_bytes: u.available_bytes,
+                        total_inodes: u.total_inodes,
+                        used_inodes: u.used_inodes,
+                        available_inodes: u.available_inodes,
+                    }),
+                    Some(Err(err)) => {
+                        debug!(mount_point = %mount.mount_point, %err, "statvfs failed; skipping")
+                    }
+                    None => {}
                 }
-                None => {}
             }
-        }
-        Ok(Box::new(FilesystemBuffer { stats }))
+            Ok(sample(FilesystemBuffer { stats }))
+        })
     }
 }
 

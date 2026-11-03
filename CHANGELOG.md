@@ -100,7 +100,7 @@ file fails at startup with a message naming the offending key.
   `validator` and the duplicate `thiserror 1` were dropped. The main crate
   dropped `config`, `console`, `directories`, `futures`, `inventory`,
   `once_cell`, `time`, `uuid`, `validator`, `bytes`, `tokio-util`,
-  `async-compression` and the unused `tempdir`/`tokio-test`/`tracing-test`.
+  `async-compression`, `async-trait` and the unused `tempdir`/`tokio-test`/`tracing-test`.
 - Release binaries are stripped; `RUST_LOG` overrides `logger.level`.
 - systemd unit hardened (`DynamicUser`, `CapabilityBoundingSet=`,
   `SystemCallFilter`, `ProtectProc`, ...); `AF_UNIX` allowed for journald.

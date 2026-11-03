@@ -4,12 +4,11 @@
 //! fifo frame compressed multicast`, then transmit `bytes packets errs drop
 //! fifo colls carrier compressed`.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, next_field, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorResult,
 };
 
 const PATH: &str = "/proc/net/dev";
@@ -90,10 +89,9 @@ pub fn parse(content: &str) -> CollectorResult<NetworkBuffer> {
     Ok(NetworkBuffer { stats })
 }
 
-#[async_trait]
 impl Collector for NetworkCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 

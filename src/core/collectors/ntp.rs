@@ -5,10 +5,9 @@
 //! the estimated offset and error bounds, and the frequency correction. It
 //! works with any daemon and needs no privileges or subprocess.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
-use super::{Collector, CollectorError, CollectorResult, Sample};
+use super::{sample, CollectFuture, Collector, CollectorError, CollectorResult};
 
 /// `STA_NANO`: offset and precision are in nanoseconds instead of microseconds.
 const STA_NANO: i32 = 0x2000;
@@ -93,10 +92,9 @@ fn read_timex() -> CollectorResult<NtpStats> {
     ))
 }
 
-#[async_trait]
 impl Collector for NtpCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(read_timex()?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(read_timex()?)) })
     }
 }
 

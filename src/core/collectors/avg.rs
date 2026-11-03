@@ -1,11 +1,10 @@
 //! Load averages from `/proc/loadavg`.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, next_field, parse as parse_num, ProcFile},
-    Collector, CollectorError, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorError, CollectorResult,
 };
 
 const PATH: &str = "/proc/loadavg";
@@ -57,10 +56,9 @@ pub fn parse(content: &str) -> CollectorResult<LoadAverage> {
     })
 }
 
-#[async_trait]
 impl Collector for LoadAverageCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 

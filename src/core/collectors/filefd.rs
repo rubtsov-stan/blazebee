@@ -1,11 +1,10 @@
 //! System-wide file handle usage from `/proc/sys/fs/file-nr`.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, next_field, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorResult,
 };
 
 const PATH: &str = "/proc/sys/fs/file-nr";
@@ -38,10 +37,9 @@ pub fn parse(content: &str) -> CollectorResult<FileFdStats> {
     Ok(FileFdStats { allocated, maximum })
 }
 
-#[async_trait]
 impl Collector for FileFdCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 

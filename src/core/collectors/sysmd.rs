@@ -6,11 +6,10 @@
 
 use std::{process::Stdio, time::Duration};
 
-use async_trait::async_trait;
 use serde::Serialize;
 use tokio::process::Command;
 
-use super::{procfs::fields, Collector, CollectorError, CollectorResult, Sample};
+use super::{procfs::fields, sample, CollectFuture, Collector, CollectorError};
 
 const COMMAND: &str = "systemctl";
 const ARGS: [&str; 6] = [
@@ -64,34 +63,35 @@ pub fn parse(output: &str) -> SystemdBuffer {
     SystemdBuffer { stats }
 }
 
-#[async_trait]
 impl Collector for SystemdCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        let child = Command::new(COMMAND)
-            .args(ARGS)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .output();
-        let output = tokio::time::timeout(TIMEOUT, child)
-            .await
-            .map_err(|_| CollectorError::Command {
-                command: COMMAND,
-                reason: format!("did not finish within {TIMEOUT:?}"),
-            })?
-            .map_err(|e| CollectorError::Command {
-                command: COMMAND,
-                reason: e.to_string(),
-            })?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(CollectorError::Command {
-                command: COMMAND,
-                reason: format!("{}: {}", output.status, stderr.trim()),
-            });
-        }
-        Ok(Box::new(parse(&String::from_utf8_lossy(&output.stdout))))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move {
+            let child = Command::new(COMMAND)
+                .args(ARGS)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .output();
+            let output = tokio::time::timeout(TIMEOUT, child)
+                .await
+                .map_err(|_| CollectorError::Command {
+                    command: COMMAND,
+                    reason: format!("did not finish within {TIMEOUT:?}"),
+                })?
+                .map_err(|e| CollectorError::Command {
+                    command: COMMAND,
+                    reason: e.to_string(),
+                })?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(CollectorError::Command {
+                    command: COMMAND,
+                    reason: format!("{}: {}", output.status, stderr.trim()),
+                });
+            }
+            Ok(sample(parse(&String::from_utf8_lossy(&output.stdout))))
+        })
     }
 }
 

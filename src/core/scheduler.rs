@@ -220,11 +220,10 @@ mod tests {
         sync::atomic::{AtomicU32, Ordering},
     };
 
-    use async_trait::async_trait;
     use serde::Serialize;
 
     use super::*;
-    use crate::core::collectors::{CollectorResult, Sample};
+    use crate::core::collectors::{sample, CollectFuture};
 
     #[derive(Default)]
     struct Sink {
@@ -255,30 +254,31 @@ mod tests {
 
     struct Counter(AtomicU32);
 
-    #[async_trait]
     impl Collector for Counter {
-        async fn collect(&mut self) -> CollectorResult<Sample> {
-            let n = self.0.fetch_add(1, Ordering::Relaxed);
-            Ok(Box::new(Value { n }))
+        fn collect(&mut self) -> CollectFuture<'_> {
+            Box::pin(async move {
+                let n = self.0.fetch_add(1, Ordering::Relaxed);
+                Ok(sample(Value { n }))
+            })
         }
     }
 
     struct Failing;
 
-    #[async_trait]
     impl Collector for Failing {
-        async fn collect(&mut self) -> CollectorResult<Sample> {
-            Err(CollectorError::Unsupported("always"))
+        fn collect(&mut self) -> CollectFuture<'_> {
+            Box::pin(async move { Err(CollectorError::Unsupported("always")) })
         }
     }
 
     struct Slow;
 
-    #[async_trait]
     impl Collector for Slow {
-        async fn collect(&mut self) -> CollectorResult<Sample> {
-            tokio::time::sleep(Duration::from_secs(3600)).await;
-            Ok(Box::new(Value { n: 0 }))
+        fn collect(&mut self) -> CollectFuture<'_> {
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+                Ok(sample(Value { n: 0 }))
+            })
         }
     }
 

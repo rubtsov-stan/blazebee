@@ -109,7 +109,6 @@ collector-vmstat = []
 
 [dependencies]
 blazebee-mqtt-v3 = { path = "crates/mqtt/v3" }
-async-trait = "0.1"
 erased-serde = "0.4"
 libc = "0.2"
 serde = { workspace = true }

@@ -1,11 +1,10 @@
 //! Memory totals from `/proc/meminfo`, in kibibytes as reported by the kernel.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, parse as parse_num, ProcFile},
-    Collector, CollectorError, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorError, CollectorResult,
 };
 
 const PATH: &str = "/proc/meminfo";
@@ -65,10 +64,9 @@ pub fn parse(content: &str) -> CollectorResult<MemoryStats> {
     Ok(stats)
 }
 
-#[async_trait]
 impl Collector for MemoryCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 

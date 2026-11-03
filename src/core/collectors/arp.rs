@@ -1,11 +1,10 @@
 //! Neighbour table entries from `/proc/net/arp`.
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, ProcFile},
-    Collector, CollectorResult, Sample,
+    sample, CollectFuture, Collector,
 };
 
 const PATH: &str = "/proc/net/arp";
@@ -56,10 +55,9 @@ pub fn parse(content: &str) -> ArpBuffer {
     ArpBuffer { entries }
 }
 
-#[async_trait]
 impl Collector for ArpCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?))) })
     }
 }
 

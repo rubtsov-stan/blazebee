@@ -3,12 +3,11 @@
 //! Every value is hexadecimal. Columns used: 1 processed, 2 dropped,
 //! 3 time_squeeze, 10 received_rps, 11 flow_limit_count (when present).
 
-use async_trait::async_trait;
 use serde::Serialize;
 
 use super::{
     procfs::{fields, ProcFile},
-    Collector, CollectorError, CollectorResult, Sample,
+    sample, CollectFuture, Collector, CollectorError, CollectorResult,
 };
 
 const PATH: &str = "/proc/net/softnet_stat";
@@ -69,10 +68,9 @@ pub fn parse(content: &str) -> CollectorResult<SoftnetBuffer> {
     Ok(SoftnetBuffer { stats })
 }
 
-#[async_trait]
 impl Collector for SoftnetCollector {
-    async fn collect(&mut self) -> CollectorResult<Sample> {
-        Ok(Box::new(parse(self.file.read()?)?))
+    fn collect(&mut self) -> CollectFuture<'_> {
+        Box::pin(async move { Ok(sample(parse(self.file.read()?)?)) })
     }
 }
 
