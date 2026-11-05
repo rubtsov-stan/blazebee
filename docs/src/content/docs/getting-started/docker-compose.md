@@ -182,14 +182,16 @@ docker-compose pull
 docker-compose up -d
 ```
 
-## Operational Considerations
+## What a container can observe
 
-* Ensure the container has access to required system interfaces if advanced collectors are enabled
-* Some collectors may require:
-
-  * Privileged mode
-  * Additional mounts (`/proc`, `/sys`)
-* Resource limits can be applied using `deploy.resources`
+`/proc/stat`, `/proc/meminfo`, `/proc/diskstats`, `/proc/loadavg` and
+`/sys` describe the host even inside a container, so the `cpu`, `ram`,
+`disk`, `load_average`, `thermal` and `hwmon` collectors report host values.
+Network interfaces, sockets and mounts are namespaced: `network`,
+`netstat`, `sockstat`, `conntrack` and `filesystem` see the container unless
+it runs with `network_mode: host` and host mounts. The `systemd` collector
+needs the host D-Bus socket and is not useful in a container. No privileged
+mode is required for any collector.
 
 ## Benefits of Docker Compose Deployment
 

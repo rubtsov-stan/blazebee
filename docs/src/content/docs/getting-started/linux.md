@@ -1,223 +1,93 @@
 ---
 title: Linux Install
-description: Install and run BlazeBee natively on Linux systems for direct host integration.
+description: Run BlazeBee as a systemd service from the Debian package or a release binary.
 ---
 
+## Debian package
 
-BlazeBee can be deployed directly on Linux hosts without containers, providing maximal visibility into the operating system with minimal overhead. Native deployment is recommended for bare-metal servers, virtual machines, and environments where direct access to kernel and hardware interfaces is required.
-
-This page documents installation methods, filesystem layout, and systemd-based service management.
-
-## Purpose
-
-This guide explains:
-- How to install BlazeBee on Linux systems
-- How to run it as a managed systemd service
-- How configuration and permissions are handled
-- How to operate BlazeBee in long-running production environments
-
-## Prerequisites
-
-### Required
-
-- Linux distribution (Debian / Ubuntu recommended)
-- Systemd
-- MQTT broker reachable from the host
-- Root or sudo access for installation
-
-### Optional
-
-- Dedicated system user for BlazeBee
-- Journald for centralized logging
-
-## Installation Methods
-
-### Debian Package Installation
-
-BlazeBee provides prebuilt `.deb` packages for supported releases.
+Packages are published per release for amd64 and arm64 in three variants
+(`minimal`, `standard`, `large`; see [Building](../development/build) for
+the collector sets).
 
 ```bash
-wget https://github.com/rubtsov-stan/blazebee/releases/download/vX.Y.Z/blazebee.deb
-sudo dpkg -i blazebee.deb
-````
-
-This installs:
-
-* Binary: `/usr/local/bin/blazebee`
-* Default directories:
-
-  * `/etc/blazebee/`
-  * `/var/lib/blazebee/`
-
-Any missing dependencies must be resolved manually if the host system is minimal.
-
-## Filesystem Layout
-
-Recommended directory structure:
-
-```text
-/etc/blazebee/
-  └── config.toml
-
-/var/lib/blazebee/
-  └── runtime data (if required)
-
-/usr/local/bin/
-  └── blazebee
+sudo apt install ./blazebee_<version>_<arch>.deb
 ```
 
-The configuration file location is explicitly defined via environment variables.
+The package installs:
 
-## Systemd Integration
+| Path                                   | Purpose |
+|----------------------------------------|---------|
+| `/usr/bin/blazebee`                    | binary |
+| `/etc/blazebee/config.toml`            | configuration (conffile, preserved on upgrade) |
+| `/usr/lib/systemd/system/blazebee.service` | unit, enabled and started on install |
 
-BlazeBee is designed to run as a long-lived system service under systemd.
-
-### Installing the Unit File
-
-A reference unit file is provided in the repository:
+Edit the configuration, at least `transport.host`, then restart:
 
 ```bash
-sudo cp contrib/systemd/blazebee.service /etc/systemd/system/
-```
-
-### Reload and Enable
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl start blazebee
-sudo systemctl enable blazebee
-```
-
-## Systemd Service Configuration
-
-### Example Unit File
-
-```ini
-[Unit]
-Description=BlazeBee - Lightweight System Metrics Collector and MQTT Publisher
-Documentation=https://rubtsov-stan.github.io/blazebee/
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/blazebee
-Environment="RUST_LOG=info"
-Environment="RUST_BACKTRACE=1"
-Environment="BLAZEBEE_CONFIG=/etc/blazebee/config.toml"
-
-KillMode=mixed
-KillSignal=SIGTERM
-
-User=blazebee
-Group=blazebee
-
-WorkingDirectory=/var/lib/blazebee
-ReadWritePaths=/var/lib/blazebee
-ReadOnlyPaths=/etc/blazebee/config.toml
-
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=blazebee
-
-Restart=on-failure
-RestartSec=5s
-TimeoutStartSec=30
-TimeoutStopSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Key Parameters Explained
-
-* `BLAZEBEE_CONFIG`
-  Explicit path to the configuration file.
-
-* `KillSignal=SIGTERM`
-  Enables graceful shutdown of collectors and MQTT connections.
-
-* `Restart=on-failure`
-  Ensures automatic recovery on crashes.
-
-* `StandardOutput=journal`
-  Routes logs into journald.
-
-## Security Hardening
-
-BlazeBee supports strict systemd sandboxing.
-
-Common hardening options:
-
-```ini
-NoNewPrivileges=true
-PrivateTmp=true
-PrivateDevices=true
-ProtectSystem=strict
-ProtectHome=read-only
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictNamespaces=true
-RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
-RestrictRealtime=true
-```
-
-These options:
-
-* Limit filesystem access
-* Prevent privilege escalation
-* Restrict kernel interaction
-
-Some advanced collectors may require loosening these restrictions.
-
-## User and Permissions
-
-Recommended approach:
-
-```bash
-sudo useradd --system --home /var/lib/blazebee --shell /usr/sbin/nologin blazebee
-sudo chown -R blazebee:blazebee /var/lib/blazebee
-```
-
-Collectors reading from `/proc` and `/sys` usually do not require root privileges, but hardware or power metrics may.
-
-## Configuration Management
-
-* Configuration file is read once at startup
-* Changes require service restart:
-
-```bash
+sudo editor /etc/blazebee/config.toml
 sudo systemctl restart blazebee
-```
-
-* Configuration path is defined exclusively via `BLAZEBEE_CONFIG`
-
-## Logs and Monitoring
-
-### Viewing Logs
-
-```bash
 journalctl -u blazebee -f
 ```
 
-Logs include:
+Until a broker is reachable the service logs reconnection attempts and
+takes no samples; it never exits because of an unreachable broker.
 
-* Startup validation
-* Collector lifecycle
-* MQTT connection state
-* Runtime errors
+## Release binary
 
-## Operational Considerations
+```bash
+sudo install -m 0755 blazebee /usr/bin/blazebee
+sudo install -d /etc/blazebee
+sudo install -m 0644 config.example.toml /etc/blazebee/config.toml
+sudo install -m 0644 contrib/systemd/blazebee.service /lib/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now blazebee
+```
 
-* Native deployment offers maximum metric fidelity
-* Suitable for long-running production systems
-* Ideal for environments requiring:
+## The unit
 
-  * Hardware metrics
-  * Kernel-level statistics
-  * Minimal latency
+`contrib/systemd/blazebee.service` runs the agent with `DynamicUser=yes`:
+systemd allocates an unprivileged user at start, so no account needs to be
+created. The sandbox grants read access to `/proc` and `/sys`, network
+sockets, `AF_UNIX` (journald, D-Bus for the `systemd` collector) and the
+`adjtimex` syscall for the `ntp` collector; everything else is denied.
 
-## Summary
+`BLAZEBEE_CONFIG=/etc/blazebee/config.toml` is set in the unit. To use
+another file, override it:
 
-Native Linux deployment provides the highest level of observability and control over BlazeBee. With systemd integration, hardened execution, and explicit configuration management, BlazeBee can run reliably as a core monitoring component on Linux hosts in production environments.
+```bash
+sudo systemctl edit blazebee
+# [Service]
+# Environment=BLAZEBEE_CONFIG=/srv/blazebee/config.toml
+```
+
+Credentials belong in the environment rather than the file:
+
+```ini
+[Service]
+EnvironmentFile=/etc/blazebee/env
+```
+
+with `MQTT_PASSWORD=...` in `/etc/blazebee/env` (mode 0600) and
+`password = "${MQTT_PASSWORD}"` in the configuration.
+
+## Signals and exit codes
+
+| Event                               | Behaviour |
+|-------------------------------------|-----------|
+| `SIGTERM`, `SIGINT`                 | publish `offline`, DISCONNECT, exit 0 |
+| configuration or logging error      | message on stderr, exit 2 |
+| unrecoverable broker error          | exit 1; `Restart=on-failure` restarts after 5 s |
+
+## Logs
+
+Logs go to the journal through stdout. Levels and per-module filters can
+be raised without editing the file:
+
+```bash
+sudo systemctl edit blazebee
+# [Service]
+# Environment=RUST_LOG=debug,rumqttc=info
+```
+
+Each sampling cycle is logged at `debug` with the number of published and
+failed collectors and the cycle duration.

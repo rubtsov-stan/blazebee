@@ -1,155 +1,107 @@
 ---
 title: System Metrics
-description: Core system metrics collected by BlazeBee.
+description: Collectors included in the minimal and standard builds, with their sources and fields.
 ---
 
-System metrics form the default and recommended monitoring baseline in BlazeBee. These collectors provide essential visibility into system health, performance, and resource utilization with minimal overhead.
+Every collector publishes one message per cycle containing raw kernel
+values. Counters are cumulative since boot; compute rates on the consumer
+side from two consecutive samples. Field names below are the JSON keys.
 
-They are suitable for continuous operation in production environments.
+## Minimal build
 
-## Purpose
+### `cpu` — `/proc/stat`
 
-This page documents the standard collectors that:
+`{"stats": [...]}` with one entry for the aggregate `cpu` line and one per
+logical CPU. Values are clock ticks (`USER_HZ`, usually 100 per second).
 
-* Are enabled in typical deployments
-* Have low performance impact
-* Cover the most common operational needs
+`cpu`, `user`, `nice`, `system`, `idle`, `iowait`, `irq`, `softirq`,
+`steal`, `guest`, `guest_nice`
 
-## Core System Collectors
+### `ram` — `/proc/meminfo`
 
-### Uptime
+Kibibytes. `mem_total`, `mem_free`, `mem_available`, `buffers`, `cached`,
+`swap_total`, `swap_free`.
 
-**Collector name:** `uptime`
+### `disk` — `/proc/diskstats`
 
-* Reports system uptime in seconds
-* Derived from kernel uptime sources
+`{"stats": [...]}` with one entry per block device and partition.
+`device`, `reads_completed`, `reads_merged`, `read_bytes`, `read_time_ms`,
+`writes_completed`, `writes_merged`, `written_bytes`, `write_time_ms`,
+`io_in_progress`, `io_time_ms`, `weighted_io_time_ms`. Byte fields are
+converted from the kernel's 512-byte sectors.
 
-**Use cases:**
+### `uptime` — `/proc/uptime`
 
-* Detecting reboots
-* Correlating restarts with incidents
+`uptime_seconds`, `idle_time_seconds` (summed over all CPUs),
+`boot_time_seconds` (Unix time derived from the wall clock).
 
----
+### `load_average` — `/proc/loadavg`
 
-### Load Average
+`one_minute`, `five_minutes`, `fifteen_minutes`, `running_processes`,
+`total_processes`.
 
-**Collector name:** `load_average`
+### `processes` — `/proc/stat`
 
-* Reports 1, 5, and 15 minute load averages
-* Kernel-derived metrics
+`total_processes` (forks since boot), `running_processes`,
+`blocked_processes`, `context_switches`.
 
-**Use cases:**
+## Standard build
 
-* Capacity planning
-* Detecting sustained overload
+### `network` — `/proc/net/dev`
 
----
+`{"stats": [...]}` per interface: `interface`, `receive_bytes`,
+`receive_packets`, `receive_errors`, `receive_drops`, `transmit_bytes`,
+`transmit_packets`, `transmit_errors`, `transmit_drops`.
 
-### CPU
+### `netstat` — `/proc/net/netstat`
 
-**Collector name:** `cpu`
+`{"entries": [{"protocol": "TcpExt", "stat_name": "...", "value": n}, ...]}`
+for every counter in the `TcpExt`, `IpExt` and other groups.
 
-* Per-core and aggregated CPU usage
-* User, system, idle, iowait breakdown
+### `sockstat` — `/proc/net/sockstat`
 
-**Use cases:**
+`{"entries": [{"protocol": "TCP", "metric": "inuse", "value": n}, ...]}`.
+The `sockets: used` line appears with protocol `sockets`.
 
-* Performance analysis
-* Detecting CPU saturation
+### `vmstat` — `/proc/vmstat`
 
----
+`{"entries": [{"key": "pgfault", "value": n}, ...]}` for every counter.
 
-### Memory (RAM)
+### `filesystem` — `/proc/self/mounts` and `statvfs(2)`
 
-**Collector name:** `ram`
+`{"stats": [...]}` per mounted filesystem with a backing device:
+`device`, `mount_point`, `fs_type`, `total_bytes`, `used_bytes`,
+`available_bytes` (for unprivileged users), `total_inodes`, `used_inodes`,
+`available_inodes`. Pseudo filesystems (`proc`, `sysfs`, `tmpfs`,
+`overlay`, ...) and network filesystems (`nfs`, `cifs`, `fuse.*`, ...) are
+skipped. A mount whose `statvfs` call does not return within 2 s is skipped
+until that call completes, so a hung mount cannot stall the agent.
 
-* Total, used, free, cached memory
-* Swap usage (if available)
+### `systemd` — `systemctl list-units --all --plain`
 
-**Use cases:**
+`{"stats": [...]}` per unit: `unit_name`, `load_state`, `active_state`,
+`sub_state`, `description`. Requires `systemctl` on the host and access to
+the system D-Bus; the command is bounded to 5 s. Output can reach tens of
+kilobytes on hosts with many units.
 
-* Memory leak detection
-* Capacity monitoring
+### `ntp` — `adjtimex(2)`
 
----
+Kernel clock discipline as maintained by whichever time daemon runs
+(chrony, ntpd, systemd-timesyncd, ptp4l): `synchronized`, `clock_state`
+(0 ok ... 5 unsynchronized), `status` (raw `STA_*` bits), `offset_ms`,
+`max_error_ms`, `estimated_error_ms`, `frequency_ppm`, `tai_offset`. No
+privileges or subprocess are needed. Linux only.
 
-### Disk
-
-**Collector name:** `disk`
-
-* Disk usage per mount point
-* Read/write statistics
-
-**Use cases:**
-
-* Storage capacity tracking
-* IO bottleneck detection
-
----
-
-### Network
-
-**Collector name:** `network`
-
-* Per-interface RX/TX counters
-* Packet and error statistics
-
-**Use cases:**
-
-* Traffic analysis
-* Detecting packet loss
-
----
-
-### Processes
-
-**Collector name:** `processes`
-
-* Total running processes
-* Blocked and zombie counts
-
-**Use cases:**
-
-* Detecting process leaks
-* OS-level health checks
-
----
-
-### Context Switches
-
-**Collector name:** `vmstat`
-
-* Voluntary and involuntary context switches
-* Kernel scheduler activity
-
-**Use cases:**
-
-* Diagnosing contention
-* Performance tuning
-
-## Enabling System Metrics
-
-System collectors are enabled using the same configuration mechanism:
+## Enabling collectors
 
 ```toml
 [[metrics.collectors.enabled]]
-name = "cpu"
+name = "network"
 [metrics.collectors.enabled.metadata]
-topic  = "metrics/cpu"
-qos    = 0
+topic = "metrics/network"
+qos = 0
 retain = true
 ```
 
-Most system metrics are included in the `standard` feature set.
-
-## Usage Scenarios
-
-* Baseline infrastructure monitoring
-* Alerting on thresholds (CPU, RAM, disk)
-* Feeding dashboards and time-series databases
-* Supporting SRE incident response
-
-## Summary
-
-System metrics provide reliable, low-cost observability into operating system behavior. They are the foundation of BlazeBee deployments and should be enabled in nearly all environments.
-
+A collector that is enabled in the file but not compiled into the binary is
+reported at startup together with the list of available names.

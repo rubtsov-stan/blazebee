@@ -1,131 +1,89 @@
-//! Logging configuration structures and validation logic.
-//!
-//! This module defines the configuration types used for initializing the
-//! application's logging subsystem. All structures support serialization
-//! and deserialization via `serde` and include validation rules enforced
-//! by the `validator` crate.
+//! Logging configuration.
 
-use serde::{Deserialize, Serialize};
-use validator::{Validate, ValidationError};
+use serde::Deserialize;
 
-/// Available formats for console log output.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Console log layout.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum LogFormat {
-    #[serde(rename = "compact")]
+    #[default]
     Compact,
-    #[serde(rename = "pretty")]
     Pretty,
-    #[serde(rename = "json")]
     Json,
 }
 
-impl Default for LogFormat {
-    fn default() -> Self {
-        LogFormat::Compact
-    }
-}
-
-/// Formats available for timestamp representation in log entries.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Timestamp style for console output.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum TimestampFormat {
+    /// `2024-05-01T12:00:00.123456Z`
+    #[default]
+    #[serde(alias = "Rfc3339")]
     Rfc3339,
+    /// Seconds since the Unix epoch with microseconds, e.g. `1714564800.123456`.
+    #[serde(alias = "Unix")]
     Unix,
-    Custom(String),
 }
 
-impl Default for TimestampFormat {
-    fn default() -> Self {
-        TimestampFormat::Rfc3339
-    }
-}
-
-/// Top-level logging configuration.
-///
-/// Controls global log level, timestamp format, and output targets (console and/or journald).
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-#[serde(default)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct LoggerConfig {
-    /// Global log level. Valid values: trace, debug, info, warn, error (case-insensitive).
-    #[validate(custom(function = "validate_log_level"))]
+    /// A level (`trace`, `debug`, `info`, `warn`, `error`, `off`) or a full
+    /// `tracing` directive list such as `info,rumqttc=warn`. `RUST_LOG`
+    /// overrides this value when set.
     pub level: String,
-
-    /// Optional console output configuration.
-    #[validate(nested)]
-    pub console: Option<ConsoleConfig>,
-
-    /// Optional systemd journald output configuration.
-    #[validate(nested)]
-    pub journald: Option<JournaldConfig>,
-
-    /// Timestamp format used across all outputs.
-    #[validate(custom(function = "validate_timestamp_format"))]
     pub timestamp_format: TimestampFormat,
-}
-
-/// Validates that a custom timestamp format string is non-empty.
-fn validate_timestamp_format(format: &TimestampFormat) -> Result<(), ValidationError> {
-    match format {
-        TimestampFormat::Custom(s) if s.is_empty() => {
-            let mut err = ValidationError::new("invalid_timestamp_format");
-            err.message = Some("Custom timestamp format cannot be empty".into());
-            Err(err)
-        }
-        _ => Ok(()),
-    }
-}
-
-/// Validates that the provided log level is one of the supported values.
-fn validate_log_level(level: &str) -> Result<(), ValidationError> {
-    match level.to_lowercase().as_str() {
-        "trace" | "debug" | "info" | "warn" | "error" => Ok(()),
-        _ => {
-            let mut err = ValidationError::new("invalid_log_level");
-            err.message = Some(format!("Invalid log level: {}", level).into());
-            Err(err)
-        }
-    }
+    pub console: ConsoleConfig,
+    pub journald: JournaldConfig,
 }
 
 impl Default for LoggerConfig {
     fn default() -> Self {
-        LoggerConfig {
+        Self {
             level: "info".to_string(),
             timestamp_format: TimestampFormat::default(),
-            console: Some(ConsoleConfig::default()),
-            journald: Some(JournaldConfig::default()),
+            console: ConsoleConfig::default(),
+            journald: JournaldConfig::default(),
         }
     }
 }
 
-/// Configuration for console log output.
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-#[serde(default)]
+impl LoggerConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        // A bare word must be a level; EnvFilter would accept any word as a target name.
+        if self.level.contains(['=', ',']) {
+            tracing_subscriber::EnvFilter::try_new(&self.level)
+                .map_err(|e| format!("logger.level: {e}"))?;
+        } else {
+            self.level
+                .parse::<tracing_subscriber::filter::LevelFilter>()
+                .map_err(|_| format!("logger.level: '{}' is not a log level", self.level))?;
+        }
+        if self.journald.enabled && self.journald.identifier.is_empty() {
+            return Err("logger.journald.identifier must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ConsoleConfig {
-    /// Whether console output is enabled.
     pub enabled: bool,
-
-    /// Output format for console logs.
-    #[serde(default)]
     pub format: LogFormat,
-
-    /// Include the log target (module path) in output.
+    /// Include the module path of the event.
     pub show_target: bool,
-
-    /// Include thread IDs in output.
     pub show_thread_ids: bool,
-
-    /// Include span entry/exit events in output.
+    /// Emit span close events with timing.
     pub show_spans: bool,
-
-    /// Enable ANSI color codes in console output.
     pub ansi_colors: bool,
 }
 
 impl Default for ConsoleConfig {
     fn default() -> Self {
-        ConsoleConfig {
+        Self {
             enabled: true,
-            format: LogFormat::default(),
+            format: LogFormat::Compact,
             show_target: false,
             show_thread_ids: false,
             show_spans: false,
@@ -134,23 +92,58 @@ impl Default for ConsoleConfig {
     }
 }
 
-/// Configuration for systemd journald output (Unix only).
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct JournaldConfig {
-    /// Whether journald output is enabled.
-    #[serde(default)]
     pub enabled: bool,
-
-    /// Identifier used for journal entries. Must be non-empty.
-    #[validate(length(min = 1))]
+    /// `SYSLOG_IDENTIFIER` of the journal entries.
     pub identifier: String,
 }
 
 impl Default for JournaldConfig {
     fn default() -> Self {
-        JournaldConfig {
+        Self {
             enabled: false,
             identifier: "blazebee".to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_formats_with_aliases() {
+        let c: LoggerConfig = toml::from_str(
+            "level = \"debug,rumqttc=warn\"\ntimestamp_format = \"Unix\"\n[console]\nformat = \"json\"\n[journald]\nenabled = true\n",
+        )
+        .unwrap();
+        assert_eq!(c.timestamp_format, TimestampFormat::Unix);
+        assert_eq!(c.console.format, LogFormat::Json);
+        assert_eq!(c.journald.identifier, "blazebee");
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_bad_level_and_empty_identifier() {
+        let c = LoggerConfig {
+            level: "loud".into(),
+            ..Default::default()
+        };
+        assert!(c.validate().unwrap_err().contains("logger.level"));
+        let c = LoggerConfig {
+            level: "info,nosuchlevel".into(),
+            ..Default::default()
+        };
+        assert!(c.validate().is_ok(), "directive lists are passed through");
+        let c = LoggerConfig {
+            journald: JournaldConfig {
+                enabled: true,
+                identifier: String::new(),
+            },
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
     }
 }

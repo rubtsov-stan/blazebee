@@ -1,17 +1,36 @@
-[package]
-name = "blazebee"
-version = "0.1.0"
+[workspace]
+members = ["crates/mqtt/v3"]
+
+[workspace.package]
+version = "0.2.0"
 edition = "2021"
-description = "Lightweight, high-performance system metrics collector for Linux"
-readme = "README.md"
-homepage = "https://rubtsov-stan.github.io/blazebee/"
-repository = "https://github.com/rubtsov-stan/blazebee"
-documentation = "https://rubtsov-stan.github.io/blazebee/"
-keywords = ["monitoring", "metrics", "mqtt", "system", "linux", "rust"]
-categories = ["command-line-utilities", "development-tools", "hardware", "network-programming"]
+rust-version = "1.86"
 license = "Apache-2.0"
 authors = ["Stanislav Rubtsov <rubtzov.stas@gmail.com>"]
-rust-version = "1.86"
+repository = "https://github.com/rubtsov-stan/blazebee"
+homepage = "https://rubtsov-stan.github.io/blazebee/"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.45", default-features = false }
+tracing = "0.1"
+
+[package]
+name = "blazebee"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Lightweight system metrics collector for Linux that publishes to MQTT"
+readme = "README.md"
+documentation = "https://rubtsov-stan.github.io/blazebee/"
+keywords = ["monitoring", "metrics", "mqtt", "system", "linux"]
+categories = ["command-line-utilities", "network-programming"]
 exclude = ["/target", "/docs", "/.github"]
 publish = false
 
@@ -19,27 +38,14 @@ publish = false
 name = "blazebee"
 path = "src/main.rs"
 
-[workspace]
-members = [
-    "crates/mqtt/v3",
-]
-
-[workspace.package]
-version = "0.1.0"
-edition = "2021"
-license = "Apache-2.0"
-authors = ["Stanislav Rubtsov <rubtzov.stas@gmail.com>"]
-description = "BlazeBee workspace — lightweight system metrics collector and publisher"
-repository = "https://github.com/rubtsov-stan/blazebee"
-homepage = "https://rubtsov-stan.github.io/blazebee/"
-
-[badges]
-maintenance = { status = "actively-developed" }
+[package.metadata.release]
+tag-name = "v{{version}}"
+sign-tag = false
+push = false
+publish = false
 
 [features]
-default = ["blazebee-mqtt-v3"]
-
-blazebee-mqtt-v3 = ["dep:blazebee-mqtt-v3"]
+default = ["standard"]
 
 minimal = [
     "collector-cpu",
@@ -71,7 +77,7 @@ large = [
     "collector-thermal",
     "collector-hwmon",
     "collector-entropy",
-    "collector-filedfd",
+    "collector-filefd",
     "collector-schedstat",
     "collector-stat",
     "collector-power",
@@ -79,101 +85,92 @@ large = [
     "collector-mdraid",
 ]
 
-collector-cpu = []
-collector-ram = []
-collector-disk = []
-collector-network = []
-collector-processes = []
-collector-uptime = []
-collector-loadavg = []
-collector-vmstat = []
 collector-arp = []
+collector-conntrack = []
+collector-cpu = []
+collector-disk = []
+collector-edac = []
+collector-entropy = []
+collector-filefd = []
+collector-filesystem = []
+collector-hwmon = []
+collector-ipvs = []
+collector-loadavg = []
+collector-mdraid = []
 collector-netstat = []
+collector-network = []
+collector-ntp = []
+collector-power = []
+collector-pressure = []
+collector-processes = []
+collector-ram = []
+collector-schedstat = []
 collector-sockstat = []
 collector-softnet = []
-collector-conntrack = []
-collector-ipvs = []
-collector-pressure = []
-collector-thermal = []
-collector-hwmon = []
-collector-entropy = []
-collector-filedfd = []
-collector-schedstat = []
 collector-stat = []
-collector-power = []
-collector-edac = []
-collector-filesystem = []
-collector-mdraid = []
-collector-ntp = []
 collector-systemd = []
-
-[workspace.dependencies]
-async-trait = "0.1"
-validator = { version = "0.18.1", features = ["derive"] }
-serde = { version = "1.0", features = ["derive"] }
-tokio = { version = "1.45.1", features = ["full"] }
-tokio-util = "0.7.16"
+collector-thermal = []
+collector-uptime = []
+collector-vmstat = []
 
 [dependencies]
-async-trait = { workspace = true }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "std", "ansi", "json"] }
-tracing-journald = "0.3"
-time = { version = "0.3", features = ["formatting", "macros"] }
+blazebee-mqtt-v3 = { path = "crates/mqtt/v3" }
+erased-serde = "0.4"
+libc = "0.2"
 serde = { workspace = true }
-toml = "0.8"
-config = "0.14"
-directories = "5.0"
-thiserror = "2.0.12"
-tokio = { workspace = true }
-validator = { workspace = true }
-tokio-util = { workspace = true }
-uuid = { version = "1", features = ["v4", "serde"] }
-serde_json = "1.0.144"
-bytes = "1.10.1"
-blazebee-mqtt-v3 = { path = "crates/mqtt/v3", optional = true }
-async-compression = { version = "0.4.34", features = ["zstd"] }
-once_cell = "1.21.3"
-inventory = "0.3.21"
-futures = "0.3.31"
-erased-serde = "0.4.9"
-libc = "0.2.178"
-console = "0.15"
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros", "time", "sync", "signal", "process"] }
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+tracing = { workspace = true }
+tracing-journald = "0.3"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "ansi", "json", "std"] }
 
 [dev-dependencies]
-tempdir = "0.3.7"
-tempfile = "3.8"
-tracing-test = "0.2"
-tokio-test = "0.4"
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["rt", "macros", "time", "test-util"] }
 
-[profile.dev]
-opt-level = 0
+[[bench]]
+name = "parsers"
+harness = false
+required-features = ["large"]
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
+strip = true
 
-[profile.dev-opt]
-inherits = "dev"
-opt-level = 2
+[profile.bench]
+debug = false
 
 [package.metadata.deb]
 maintainer = "Stanislav Rubtsov <rubtzov.stas@gmail.com>"
+extended-description = """\
+BlazeBee samples Linux kernel interfaces (/proc, /sys) at a fixed interval and \
+publishes the resulting metrics to an MQTT broker. It runs as a systemd service \
+under a dynamic, unprivileged user."""
+section = "utils"
+priority = "optional"
 assets = [
     ["target/release/blazebee", "/usr/bin/blazebee", "755"],
     ["config.example.toml", "/etc/blazebee/config.toml", "644"],
-    ["contrib/systemd/blazebee.service", "/lib/systemd/system/blazebee.service", "644"],
 ]
-systemd-units = { enable = true, unit-name = "blazebee" }
-section = "utils"
-priority = "optional"
+conf-files = ["/etc/blazebee/config.toml"]
+maintainer-scripts = "packaging/debian"
+# cargo-deb installs the unit from `unit-scripts` and generates the
+# enable/start snippets into the maintainer scripts.
+systemd-units = { enable = true, unit-name = "blazebee", unit-scripts = "contrib/systemd" }
 
 [package.metadata.deb.variants.minimal]
 features = ["minimal"]
+default-features = false
 
 [package.metadata.deb.variants.standard]
 features = ["standard"]
+default-features = false
 
 [package.metadata.deb.variants.large]
 features = ["large"]
+default-features = false

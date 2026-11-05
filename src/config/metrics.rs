@@ -1,102 +1,74 @@
-//! Configuration structures for system metrics collection and publishing.
-//!
-//! This module defines the configuration types that control which metrics
-//! are collected, how frequently they are gathered, and the metadata used
-//! for publishing with different transport type.
+//! Collector selection and sampling interval.
 
-#[cfg(feature = "blazebee-mqtt-v3")]
+use std::collections::HashSet;
+
 use blazebee_mqtt_v3::EndpointMetadata;
-use serde::{Deserialize, Serialize};
-use validator::Validate;
+use serde::Deserialize;
 
-/// Represents a single enabled metric collector with its publishing metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-#[serde(default)]
-pub struct Collector {
-    /// Unique name of the collector. Must not be empty.
-    ///
-    /// This name is used to look up the registered collector implementation.
-    #[validate(length(min = 1, message = "Collector name must not be empty"))]
-    pub name: String,
-
-    /// Metadata defining how collected data should be published.
-    pub metadata: CollectorMetadata,
-}
-
-#[cfg(feature = "blazebee-mqtt-v3")]
-/// Type alias for collector metadata when using MQTT transport.
-pub type CollectorMetadata = EndpointMetadata;
-
-impl Default for Collector {
-    fn default() -> Self {
-        Self {
-            name: "unknown".into(),
-            metadata: CollectorMetadata::default(),
-        }
-    }
-}
-
-/// Configuration for the set of enabled collectors and collection timing.
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-#[serde(default)]
-pub struct CollectorsConfig {
-    /// List of collectors that are enabled and should be executed periodically.
-    ///
-    /// At least one collector must be specified.
-    #[validate(length(
-        min = 1,
-        message = "At least one collector must be enabled, possible values: cpu, memory, disk, network, process, system, temperature"
-    ))]
-    pub enabled: Vec<Collector>,
-
-    /// Interval (in seconds) at which metrics are collected and published.
-    ///
-    /// Must be at least 1 second.
-    #[validate(range(min = 1, message = "Collection must be at least 1 second"))]
-    pub collection_interval: u64,
-}
-
-impl Default for CollectorsConfig {
-    fn default() -> Self {
-        let default_collectors = vec!["cpu", "avg", "disk", "network", "processes", "uptime"]
-            .into_iter()
-            .map(|name| Collector {
-                name: name.into(),
-                metadata: CollectorMetadata {
-                    qos: 1,
-                    topic: format!("metrics/{}", name),
-                    retain: false,
-                },
-            })
-            .collect();
-
-        Self {
-            enabled: default_collectors,
-            collection_interval: 5,
-        }
-    }
-}
-
-impl CollectorsConfig {
-    /// Return enabled collector names from CollectorConfig struct
-    pub fn enabled_names(&self) -> Vec<&str> {
-        self.enabled.iter().map(|c| c.name.as_str()).collect()
-    }
-}
-
-/// Top-level metrics configuration container.
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-#[serde(default)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct MetricsConfig {
-    /// Configuration for collectors and their execution schedule.
-    #[serde(default)]
+    /// Seconds between two sampling cycles; at least 1.
+    pub collection_interval: u64,
     pub collectors: CollectorsConfig,
 }
 
 impl Default for MetricsConfig {
     fn default() -> Self {
         Self {
+            collection_interval: 5,
             collectors: CollectorsConfig::default(),
         }
     }
+}
+
+impl MetricsConfig {
+    pub fn enabled_names(&self) -> Vec<&str> {
+        self.collectors
+            .enabled
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect()
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.collection_interval == 0 {
+            return Err("metrics.collection_interval must be at least 1 second".to_string());
+        }
+        if self.collectors.enabled.is_empty() {
+            return Err("metrics: at least one collector must be enabled".to_string());
+        }
+        let mut seen = HashSet::new();
+        for entry in &self.collectors.enabled {
+            if entry.name.is_empty() {
+                return Err("metrics: collector name must not be empty".to_string());
+            }
+            if !seen.insert(entry.name.as_str()) {
+                return Err(format!(
+                    "metrics: collector '{}' is enabled twice",
+                    entry.name
+                ));
+            }
+            entry
+                .metadata
+                .validate()
+                .map_err(|e| format!("metrics: collector '{}': {e}", entry.name))?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CollectorsConfig {
+    /// One entry per `[[metrics.collectors.enabled]]` table.
+    pub enabled: Vec<CollectorConfig>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CollectorConfig {
+    /// Registered collector name, e.g. `cpu`.
+    pub name: String,
+    pub metadata: EndpointMetadata,
 }

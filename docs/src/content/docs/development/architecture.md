@@ -1,111 +1,128 @@
 ---
 title: Architecture
-description: Detailed breakdown of BlazeBee’s internal structure, components, and data flow.
+description: How BlazeBee is structured, how data flows and how failures are handled.
 ---
 
-### Overview
+BlazeBee is a single process with one OS thread of its own. A Tokio
+`current_thread` runtime drives three concerns: the sampling loop, the MQTT
+event loop and signal handling. There are no locks and no shared mutable
+state; the components communicate through a bounded request queue and a
+watch channel.
 
-BlazeBee is implemented in Rust with a focus on performance, modularity, and safe concurrency. It is structured into clearly separated layers: configuration, metric collectors, transport, and execution. This organization supports high throughput metric collection and reliable publishing to MQTT brokers, with extensible components that can be enabled or disabled at build time and run time. The architectural description below is based on the repository layout, README contents, and configuration artifacts in the project.
+## Components
 
-### Layered Structure
+```
+config ─▶ main ─┬─▶ Scheduler ──(Publisher::publish)──▶ rumqttc queue ─▶ Driver task ─▶ broker
+                │        ▲                                                   │
+                │        └──────────── watch<ConnectionState> ◀──────────────┘
+                └─▶ signals (SIGTERM, SIGINT)
+```
 
-### Configuration Layer
+**Configuration** (`src/config`) locates the TOML file, substitutes
+`${NAME}` with environment variables, parses it with unknown keys rejected
+and validates every section. Collector names are checked against the
+registry compiled into the binary, so a typo or a collector missing from the
+build is reported before anything starts.
 
-**Role:** Centralizes configuration for the entire system.
+**Collectors** (`src/core/collectors`) implement one trait:
 
-- Parses a TOML file (`config.example.toml`) to build an in-memory settings object that drives the behavior of other layers.  
-- Validates required sections such as logging, transport, and enabled collectors before runtime begins.  
-- Exposes structured config objects to the collection and transport subsystems.  
-- Supports environment variable substitution for sensitive values (e.g., MQTT credentials).
+```rust
+pub trait Collector: Send {
+    fn collect(&mut self) -> CollectFuture<'_>; // boxed future of CollectorResult<Sample>
+}
+```
 
-**Primary responsibilities:**
+A `Sample` is a boxed `erased_serde::Serialize`, which lets the transport
+encode any collector output with the configured format. Collectors keep
+their state (`&mut self`): the read buffer for a `/proc` file is allocated
+once, the filesystem collector remembers mounts whose `statvfs` call never
+returned. Each collector module exposes a pure `parse` function so parsing
+is tested against captured kernel output without touching the host.
 
-- Logging settings (level, output format, console vs journal).  
-- MQTT connection parameters (host, port, client ID, keep-alive, TLS settings).  
-- Collector enablement and per-collector metadata (topic, QoS, retain flags).  
-- Metric collection intervals.
+The registry is a static slice of `(name, constructor)` pairs, one entry per
+`collector-*` feature. Disabled collectors are not compiled.
 
-### Collection Layer
+**Scheduler** (`src/core/scheduler.rs`) owns the collectors and the
+publisher. A `tokio::time::interval` with `MissedTickBehavior::Skip` fires
+every `collection_interval` seconds. Each tick:
 
-**Role:** Encapsulates metric-specific gathering logic into modular units.
+1. If the connection state is fatal, the loop returns and the process exits
+   with status 1.
+2. If the broker is not connected, the cycle is skipped. This is logged once
+   when the pause starts and once, with the number of skipped cycles, when
+   collection resumes.
+3. Otherwise each collector runs in turn under a 10 s timeout, its sample is
+   encoded and queued. A failure (collect, timeout, encode, full queue) is
+   counted per collector; the first failure and every 120th are logged at
+   `warn`, the rest at `debug`, and recovery is logged at `info`.
 
-- Each collector implements a defined interface for retrieving system metrics (CPU, memory, disk, network, processes, uptime, advanced stats).  
-- The registry of active collectors is derived from configuration; only enabled collectors are instantiated at startup.  
-- Metric functions read from system data sources (e.g., `/proc`, sysfs) to populate domain-specific structures.  
-- Collectors run independently under the async runtime to maximize concurrency and minimize interference.
+Collectors run sequentially on the runtime thread. `/proc` reads are served
+from kernel memory and take microseconds, so offloading them would cost more
+than it saves. The two operations that can block, `statvfs` and
+`systemctl`, run on a blocking thread and as a child process respectively,
+both with deadlines.
 
-**Characteristics:**
+**Transport** (`crates/mqtt/v3`) wraps `rumqttc`:
 
-- Lightweight Rust implementations aiming for minimal CPU and memory overhead.  
-- Metric categories separated into core and advanced sets; advanced collectors may require elevated permissions.  
-- Collector metadata (MQTT topic, QoS, retain) configured per collector instance.
+- `Transport::connect` validates the transport configuration, builds the
+  client with credentials, TLS and a last-will message, and spawns the
+  driver task.
+- The driver polls the event loop. On `CONNACK` it publishes `online`
+  (retained) to `<base_topic>/status` and resets the backoff. On an error
+  it classifies the cause: rejected credentials, protocol or client-id
+  rejection, TLS failures and local permission errors are fatal; everything
+  else waits `1 s × 2ⁿ` (capped at 60 s, ±20 % jitter) and retries, forever.
+- `Publisher::publish` encodes a value (JSON, MessagePack or CBOR, optional
+  gzip or zstd above a size threshold), checks it against
+  `max_packet_size` and calls `try_publish`. The queue between publishers and
+  the event loop is bounded by `request_channel_capacity`; a full queue is an
+  error for that sample, never a stall.
+- `Transport::shutdown` publishes `offline`, queues DISCONNECT and polls
+  until the packet has been written or 3 s have passed.
 
-### Transport Layer
+## Delivery policy
 
-**Role:** Handles network I/O and message delivery to the MQTT broker.
+Metrics are latest-value samples. A sample taken while the broker is
+unreachable would be stale by the time it could be delivered, so none is
+taken. QoS 1 and 2 publishes that were already queued when a connection
+drops are retransmitted by `rumqttc` on reconnect when `clean_session =
+false`, exactly as the protocol specifies; with `clean_session = true` they
+are dropped with the session. Memory use is therefore independent of outage
+length.
 
-- Based on the `rumqttc` Rust crate for MQTT client functionality.
-- Establishes and maintains TCP/TLS connections to the MQTT broker according to configured parameters.  
-- Serializes metric payloads to chosen formats (JSON by default; could be extended to others).  
-- Performs publish operations with appropriate MQTT settings: topic, Quality of Service (QoS), retain flags.
+## Lifecycle
 
-**Connections and failure management:**
+```
+load config ─▶ init logging ─▶ connect transport ─▶ run scheduler
+      │              │                 │                   │
+    exit 2         exit 2       exit 1 on setup error      │
+                                                           ├─ SIGTERM/SIGINT ─▶ offline + DISCONNECT ─▶ exit 0
+                                                           └─ fatal connection error ─▶ exit 1
+```
 
-- Maintains reconnect logic and keep-alive heartbeats to preserve broker session.  
-- Errors during publishing are logged and isolated; transport failures do not crash the entire system.
+Configuration and logging errors are printed to stderr before the logger
+exists. Under systemd, `Restart=on-failure` restarts the service after a
+fatal transport error but not after a clean stop.
 
-### Execution Layer
+## Resource profile
 
-**Role:** Drives concurrent operation of collectors and transport.
+Measured on Linux 7.1 (aarch64, 6 vCPUs) with all 27 collectors enabled at a
+1 s interval against a local Mosquitto broker, 60 s run, compared with the
+previous multi-threaded design built from the same commit:
 
-- Uses Rust’s `tokio` asynchronous runtime for scheduling and execution without blocking.  
-- Timer-driven loops invoke collectors at configured intervals.  
-- Async tasks manage MQTT communication in parallel with metric collection.  
-- Graceful shutdown signals are propagated to stop tasks cleanly and close connections.
+| Metric                         | Previous | Current |
+|--------------------------------|----------|---------|
+| Threads                        | 50       | 2       |
+| Resident memory (VmRSS)        | 7.4 MiB  | 4.3–4.6 MiB |
+| Virtual size (VmSize)          | 3.1 GiB  | 74 MiB  |
+| CPU time per 60 s              | 0.58 s   | 0.13–0.19 s |
+| System calls per second        | ~1180    | ~320    |
+| Heap allocations per cycle     | ~2800    | ~1100   |
+| Shutdown on SIGTERM            | killed, exit 143, status left `online` | clean, exit 0, status `offline`, under 5 ms |
 
-### Data Flow
+A 10-minute run at the same interval kept VmHWM at 4.3 MiB, one thread and
+ten open descriptors throughout.
 
-1. **Initialization**
-
-   - Read and validate the configuration file.  
-   - Construct collector and transport subsystems based on config.  
-   - Initialize the async runtime and logging according to settings. 
-
-2. **Collector Scheduling**
-
-   - For each enabled collector, schedule periodic execution using async timers.  
-   - Collectors fetch raw system data at configured intervals.  
-   - Data is packaged into metric structures.
-
-3. **Serialization & Publishing**
-
-   - Serialize metric data to the configured format.  
-   - Hand off serialized payloads to the transport layer.  
-   - Transport layer publishes to designated MQTT topics with configured QoS and retain settings.
-
-4. **Error Isolation**
-
-   - Individual collector errors are contained and logged; they do not stop others from running.  
-   - MQTT errors are logged, with reconnection attempts; transport layer resilience prevents systemic failure.
-
-### Component Interactions
-
-- **Configuration → Collectors:** config determines which collectors are active and supplies metadata for publishing.
-- **Collectors → Transport:** metric data flows from collector tasks into the MQTT client for delivery based on configured topics and flags.   
-- **Runtime → All Layers:** `tokio` runtime schedules tasks across collectors and transport concurrently.
-
-### Extensibility
-
-- New collectors can be added by implementing the collector trait and registering them in the build system.
-- Transport layer abstraction allows future support for alternative protocols beyond MQTT.
-
-### Goals of Architecture
-
-- Minimize resource usage while maintaining responsiveness.
-- Support flexible configuration for diverse deployment models (edge, cloud, IoT).
-- Ensure safety through Rust’s type and memory guarantees.
-
-### Summary
-
-BlazeBee’s architecture separates key concerns—configuration, data collection, transport, and execution—into distinct layers that interact through well-defined interfaces. The design supports secure, concurrent metric gathering and efficient delivery over MQTT, with resilience against individual component failures and flexible extensibility for custom use cases.
-
+At the default 5 s interval the CPU cost is proportionally lower. Steady
+state allocates per cycle only the output structures, the encoded payload
+and, when enabled, the compression buffer; the read buffers are reused.
